@@ -144,10 +144,11 @@ void handleCommand(String command) {
       serverIP = "";
       serverPort = 0;
       internetAddress = "";
+      runningTotal = "None";
       xSemaphoreGive(serverMutex);
       client.stop();
     }
-    
+
     // Restart scan
     currentScanIP = 1;
     scanComplete = false;

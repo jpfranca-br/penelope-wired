@@ -3,6 +3,7 @@
 #include <PubSubClient.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include <HTTPClient.h>
 
 // Ethernet configuration for WT32-ETH01
 #define ETH_PHY_TYPE    ETH_PHY_LAN8720
@@ -34,6 +35,7 @@ void setupAccessPoint();
 void loadWifiSettings();
 void mqttCallback(char* topic, byte* payload, unsigned int length);
 void loadPorts();
+void refreshPublicIP();
 
 inline void logMessage(const String &message) {
   addLog(message);
@@ -62,6 +64,11 @@ String internetAddress = "";
 String lastCommandReceived = "None";
 String lastRequestSent = "None";
 String lastResponseReceived = "None";
+String runningTotal = "None";
+
+unsigned long lastPublicIPCheck = 0;
+const unsigned long PUBLIC_IP_REFRESH_INTERVAL = 300000; // 5 minutes
+bool publicIPRefreshRequested = false;
 
 // Ports to scan
 int ports[10];
@@ -108,6 +115,7 @@ void onEvent(arduino_event_id_t event) {
       eth_connected = true;
       deviceMac = ETH.macAddress();
       wiredIP = ETH.localIP().toString();
+      publicIPRefreshRequested = true;
       addLog("Ethernet connected - IP: " + ETH.localIP().toString());
       break;
     case ARDUINO_EVENT_ETH_LOST_IP:
@@ -115,6 +123,9 @@ void onEvent(arduino_event_id_t event) {
       eth_connected = false;
       wiredIP = "";
       internetAddress = "";
+      runningTotal = "None";
+      publicIPRefreshRequested = false;
+      lastPublicIPCheck = 0;
       addLog("Ethernet lost IP");
       break;
     case ARDUINO_EVENT_ETH_DISCONNECTED:
@@ -122,6 +133,9 @@ void onEvent(arduino_event_id_t event) {
       eth_connected = false;
       wiredIP = "";
       internetAddress = "";
+      runningTotal = "None";
+      publicIPRefreshRequested = false;
+      lastPublicIPCheck = 0;
       addLog("Ethernet disconnected");
       break;
     case ARDUINO_EVENT_ETH_STOP:
@@ -129,6 +143,9 @@ void onEvent(arduino_event_id_t event) {
       eth_connected = false;
       wiredIP = "";
       internetAddress = "";
+      runningTotal = "None";
+      publicIPRefreshRequested = false;
+      lastPublicIPCheck = 0;
       addLog("Ethernet stopped");
       break;
     default:
@@ -165,6 +182,7 @@ void setup() {
     Serial.print("IP: ");
     Serial.println(ETH.localIP());
     wiredIP = ETH.localIP().toString();
+    publicIPRefreshRequested = true;
   } else {
     Serial.println("Ethernet connection timeout!");
     // Continue anyway - might connect later
@@ -197,6 +215,7 @@ void setup() {
     logMessage("WT32-ETH01 Network Scanner Ready");
     logMessage("MAC Address: " + deviceMac);
     logMessage("IP Address: " + ETH.localIP().toString());
+    publicIPRefreshRequested = true;
   } else {
     Serial.println("Starting without Ethernet connection...");
     logMessage("Waiting for Ethernet connection...");
@@ -222,6 +241,7 @@ void loop() {
   if (eth_connected && !ethPreviouslyConnected) {
     logMessage("Ethernet link restored - IP: " + ETH.localIP().toString());
     wiredIP = ETH.localIP().toString();
+    publicIPRefreshRequested = true;
     mqttClient.disconnect();
     if (client.connected()) {
       client.stop();
@@ -231,6 +251,7 @@ void loop() {
     serverIP = "";
     serverPort = 0;
     internetAddress = "";
+    runningTotal = "None";
     xSemaphoreGive(serverMutex);
 
     currentScanIP = 1;
@@ -243,6 +264,9 @@ void loop() {
     if (client.connected()) {
       client.stop();
     }
+    runningTotal = "None";
+    publicIPRefreshRequested = false;
+    lastPublicIPCheck = 0;
   }
 
   ethPreviouslyConnected = eth_connected;
@@ -262,6 +286,14 @@ void loop() {
   }
   mqttClient.loop();
 
+  if (eth_connected) {
+    unsigned long now = millis();
+    bool intervalElapsed = (lastPublicIPCheck == 0) || (now - lastPublicIPCheck >= PUBLIC_IP_REFRESH_INTERVAL);
+    if (publicIPRefreshRequested || intervalElapsed) {
+      refreshPublicIP();
+    }
+  }
+
   if (serverFound) {
     if (millis() - lastCommandTime >= commandInterval) {
       if (!sendCommand()) {
@@ -271,6 +303,7 @@ void loop() {
         serverIP = "";
         serverPort = 0;
         internetAddress = "";
+        runningTotal = "None";
         xSemaphoreGive(serverMutex);
         client.stop();
 
@@ -324,4 +357,36 @@ void setupAccessPoint() {
   Serial.println(apIP);
 
   addLog("WiFi AP ready: " + ap_ssid + " @ " + apIP.toString());
+}
+
+void refreshPublicIP() {
+  if (!eth_connected) {
+    publicIPRefreshRequested = true;
+    return;
+  }
+
+  publicIPRefreshRequested = false;
+  lastPublicIPCheck = millis();
+
+  HTTPClient http;
+  http.setTimeout(4000);
+  if (!http.begin("http://api.ipify.org")) {
+    addLog("Failed to start public IP request");
+    return;
+  }
+
+  int httpCode = http.GET();
+  if (httpCode == HTTP_CODE_OK) {
+    String ip = http.getString();
+    ip.trim();
+    if (ip.length() > 0) {
+      internetAddress = ip;
+    } else {
+      addLog("Received empty public IP response");
+    }
+  } else {
+    addLog("Public IP request failed: HTTP " + String(httpCode));
+  }
+
+  http.end();
 }
