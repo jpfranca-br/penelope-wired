@@ -2,6 +2,9 @@
 
 // mqtt_functions.ino
 
+void handleWifiPasswordCommand(String command);
+void handleFactoryResetCommand();
+
 void connectMQTT() {
   int attempts = 0;
   while (!mqttClient.connected() && attempts < 5) {
@@ -128,16 +131,12 @@ void handleCommand(String command) {
     delay(1000);
     ESP.restart();
   }
-  else if (cmdLower.equals("forgetwifi")) {
-    addLog("Forgetting WiFi credentials...");
-    preferences.clear();
-    addLog("WiFi credentials cleared. Rebooting...");
-    delay(1000);
-    ESP.restart();
+  else if (cmdLower.equals("factoryreset")) {
+    handleFactoryResetCommand();
   }
   else if (cmdLower.equals("scan")) {
     addLog("Starting network rescan...");
-    
+
     // Stop current server connection
     if (serverFound) {
       xSemaphoreTake(serverMutex, portMAX_DELAY);
@@ -153,6 +152,9 @@ void handleCommand(String command) {
     currentScanIP = 1;
     scanComplete = false;
     startNetworkScan();
+  }
+  else if (cmdLower.startsWith("wifipassword")) {
+    handleWifiPasswordCommand(command);
   }
   else if (cmdLower.startsWith("port ")) {
     handlePortCommand(command);
@@ -242,4 +244,50 @@ void handlePortCommand(String command) {
   currentScanIP = 1;
   scanComplete = false;
   startNetworkScan();
+}
+
+void handleWifiPasswordCommand(String command) {
+  int spaceIndex = command.indexOf(' ');
+  if (spaceIndex == -1) {
+    addLog("Error: WiFi password command requires a password");
+    return;
+  }
+
+  String newPassword = command.substring(spaceIndex + 1);
+  newPassword.trim();
+
+  if (newPassword.length() < 8 || newPassword.length() > 63) {
+    addLog("Error: WiFi password must be between 8 and 63 characters");
+    return;
+  }
+
+  if (newPassword == ap_password) {
+    addLog("WiFi password unchanged");
+    return;
+  }
+
+  preferences.putString("apPassword", newPassword);
+  ap_password = newPassword;
+
+  addLog("WiFi password updated. Disconnecting clients...");
+  WiFi.softAPdisconnect(true);
+  delay(200);
+
+  if (WiFi.softAP(ap_ssid.c_str(), ap_password.c_str())) {
+    addLog("Access point restarted with new password");
+  } else {
+    addLog("Failed to restart access point with new password");
+  }
+}
+
+void handleFactoryResetCommand() {
+  addLog("Factory reset requested");
+
+  WiFi.softAPdisconnect(true);
+  preferences.clear();
+  ap_password = DEFAULT_AP_PASSWORD;
+
+  addLog("Preferences cleared. Rebooting...");
+  delay(1000);
+  ESP.restart();
 }
