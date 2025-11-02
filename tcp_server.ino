@@ -40,6 +40,7 @@ bool sendCommand() {
 
     client.println("(&V)");
     client.flush();
+    lastRequestSent = "(&V)";
 
     unsigned long startTime = millis();
     while (!client.available() && (millis() - startTime < RESPONSE_TIMEOUT)) {
@@ -51,6 +52,8 @@ bool sendCommand() {
       Serial.print("Response: ");
       Serial.println(response);
 
+      lastResponseReceived = response;
+
       if (mqttClient.connected()) {
         String topic = mqttTopicBase + "running";
         mqttClient.publish(topic.c_str(), response.c_str());
@@ -60,6 +63,7 @@ bool sendCommand() {
     }
 
     addLog("No response from server (attempt " + String(attempt) + "/" + String(MAX_COMMAND_ATTEMPTS) + ")");
+    lastResponseReceived = "No response from server";
     client.stop();
     delay(RETRY_DELAY_MS);
   }

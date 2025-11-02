@@ -19,7 +19,8 @@ void connectMQTT() {
         String commandTopic = mqttTopicBase + "command";
         mqttClient.subscribe(requestTopic.c_str());
         mqttClient.subscribe(commandTopic.c_str());
-        
+
+        wiredIP = ETH.localIP().toString();
         addLog("MQTT connected - Device IP: " + ETH.localIP().toString());
         addLog("Subscribed to: " + requestTopic);
         addLog("Subscribed to: " + commandTopic);
@@ -34,7 +35,8 @@ void connectMQTT() {
         String commandTopic = mqttTopicBase + "command";
         mqttClient.subscribe(requestTopic.c_str());
         mqttClient.subscribe(commandTopic.c_str());
-        
+
+        wiredIP = ETH.localIP().toString();
         addLog("MQTT connected - Device IP: " + ETH.localIP().toString());
         addLog("Subscribed to: " + requestTopic);
         addLog("Subscribed to: " + commandTopic);
@@ -75,6 +77,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   
   // Otherwise it's a request topic - send to server
   addLog("MQTT Request received: " + message);
+  lastRequestSent = message;
   
   // Send command to server if connected
   if (serverFound && client.connected()) {
@@ -96,21 +99,25 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       Serial.println(response);
       
       // Send response to MQTT
+      lastResponseReceived = response;
       if (mqttClient.connected()) {
         String responseTopic = mqttTopicBase + "response";
         mqttClient.publish(responseTopic.c_str(), response.c_str());
       }
     } else {
       addLog("No response from server");
+      lastResponseReceived = "No response from server";
     }
   } else {
     addLog("Cannot send command - server not connected");
+    lastResponseReceived = "Server not connected";
   }
 }
 
 void handleCommand(String command) {
   command.trim();
   addLog("Command received: " + command);
+  lastCommandReceived = command;
   
   // Convert to lowercase for comparison
   String cmdLower = command;
@@ -137,6 +144,7 @@ void handleCommand(String command) {
       serverFound = false;
       serverIP = "";
       serverPort = 0;
+      internetAddress = "";
       xSemaphoreGive(serverMutex);
       client.stop();
     }
@@ -226,6 +234,7 @@ void handlePortCommand(String command) {
     serverFound = false;
     serverIP = "";
     serverPort = 0;
+    internetAddress = "";
     xSemaphoreGive(serverMutex);
     client.stop();
   }
