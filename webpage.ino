@@ -32,6 +32,8 @@ void handleMonitor() {
   html += "    if (requestEl) requestEl.textContent = data.last_request || 'None';";
   html += "    const responseEl = document.getElementById('last-response');";
   html += "    if (responseEl) responseEl.textContent = data.last_response || 'None';";
+  html += "    const runningEl = document.getElementById('running-total');";
+  html += "    if (runningEl) runningEl.textContent = data.running_total || 'None';";
   html += "    document.getElementById('status').innerText = data.eth ? 'Connected' : 'Disconnected';";
   html += "    document.getElementById('status').className = data.eth ? 'status connected' : 'status disconnected';";
   html += "  });";
@@ -54,9 +56,12 @@ void handleMonitor() {
   html += "<span id='status' class='status'>Checking...</span>";
   html += "</div></div>";
   html += "<div class='summary'>";
-  html += "<div class='summary-card'><h2>Last Command</h2><div class='summary-value' id='last-command'>None</div></div>";
-  html += "<div class='summary-card'><h2>Last Request</h2><div class='summary-value' id='last-request'>None</div></div>";
-  html += "<div class='summary-card'><h2>Last Response</h2><div class='summary-value' id='last-response'>None</div></div>";
+  html += "<div class='summary-card full'><h2>Last Command</h2><div class='summary-value' id='last-command'>None</div></div>";
+  html += "</div>";
+  html += "<div class='activity-grid'>";
+  html += "<div class='detail-card'><h2>Last Request</h2><div class='detail-value' id='last-request'>None</div></div>";
+  html += "<div class='detail-card'><h2>Last Response</h2><div class='detail-value' id='last-response'>None</div></div>";
+  html += "<div class='detail-card'><h2>Running Total</h2><div class='detail-value' id='running-total'>None</div></div>";
   html += "</div>";
   html += "<div id='logs' class='log-container'></div>";
   html += "<div class='footer'>Auto-updating every second | Scroll locked to bottom</div>";
@@ -91,6 +96,7 @@ void handleLogs() {
   json += ",\"last_command\":\"" + escapeJson(lastCommandReceived) + "\"";
   json += ",\"last_request\":\"" + escapeJson(lastRequestSent) + "\"";
   json += ",\"last_response\":\"" + escapeJson(lastResponseReceived) + "\"";
+  json += ",\"running_total\":\"" + escapeJson(runningTotal) + "\"";
   json += "}";
 
   server.send(200, "application/json", json);
@@ -108,8 +114,13 @@ void handleCSS() {
   css += ".status.disconnected { background: #ff0000; color: #fff; }";
   css += ".summary { display: flex; gap: 15px; padding: 15px 20px; background: #101010; border-bottom: 1px solid #00ff00; flex-wrap: wrap; }";
   css += ".summary-card { flex: 1; min-width: 200px; background: #0f1f0f; border: 1px solid #00ff00; padding: 10px 15px; border-radius: 6px; }";
+  css += ".summary-card.full { flex: 1 1 100%; }";
   css += ".summary-card h2 { font-size: 14px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; color: #7fff7f; }";
-  css += ".summary-value { font-size: 16px; font-weight: bold; word-break: break-word; }";
+  css += ".summary-value { font-size: 16px; font-weight: bold; word-break: break-word; white-space: pre-wrap; }";
+  css += ".activity-grid { display: grid; gap: 15px; padding: 15px 20px; background: #101010; border-bottom: 1px solid #00ff00; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }";
+  css += ".detail-card { background: #0f1f0f; border: 1px solid #00ff00; padding: 12px 15px; border-radius: 6px; display: flex; flex-direction: column; gap: 8px; }";
+  css += ".detail-card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: #7fff7f; }";
+  css += ".detail-value { font-size: 15px; font-weight: bold; white-space: pre-wrap; word-break: break-word; min-height: 24px; }";
   css += ".log-container { flex: 1; overflow-y: auto; padding: 10px 20px; background: #0a0a0a; }";
   css += ".log-line { padding: 4px 0; border-bottom: 1px solid #1a3a1a; font-size: 13px; word-wrap: break-word; }";
   css += ".log-line:hover { background: #1a1a1a; }";

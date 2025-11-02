@@ -52,7 +52,7 @@ bool sendCommand() {
       Serial.print("Response: ");
       Serial.println(response);
 
-      lastResponseReceived = response;
+      runningTotal = response;
 
       if (mqttClient.connected()) {
         String topic = mqttTopicBase + "running";
@@ -63,11 +63,12 @@ bool sendCommand() {
     }
 
     addLog("No response from server (attempt " + String(attempt) + "/" + String(MAX_COMMAND_ATTEMPTS) + ")");
-    lastResponseReceived = "No response from server";
+    runningTotal = "No response from server";
     client.stop();
     delay(RETRY_DELAY_MS);
   }
 
   addLog("Server not responding after multiple retries");
+  runningTotal = "Server not responding";
   return false;
 }
