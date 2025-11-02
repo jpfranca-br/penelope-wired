@@ -33,7 +33,7 @@ void onEvent(arduino_event_id_t event) {
       Serial.println("ETH Started");
       // The hostname must be set after the interface is started, but needs
       // to be set before DHCP, so set it from the event handler thread.
-      ETH.setHostname("penelope-esp32-wired");
+      ETH.setHostname("esp32-ethernet");
       break;
     case ARDUINO_EVENT_ETH_CONNECTED: Serial.println("ETH Connected"); break;
     case ARDUINO_EVENT_ETH_GOT_IP:
@@ -84,7 +84,7 @@ void setup() {
 
 void loop() {
   if (eth_connected) {
-    Serial.print(".");
+    testClient("google.com", 80);
   }
-  delay(1000);
+  delay(10000);
 }
