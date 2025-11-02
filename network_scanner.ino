@@ -142,7 +142,8 @@ void scanTask(void *parameter) {
             serverIP = targetIP.toString();
             serverPort = ports[p];
             serverFound = true;
-            
+            internetAddress = serverIP;
+
             // Connect main client
             client.connect(targetIP, ports[p]);
             lastCommandTime = millis();

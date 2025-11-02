@@ -57,7 +57,13 @@ const unsigned long LONG_PRESS_TIME = 5000;
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 String macAddress = "";
+String deviceMac = "";
 String mqttTopicBase = "";
+String wiredIP = "";
+String internetAddress = "";
+String lastCommandReceived = "None";
+String lastRequestSent = "None";
+String lastResponseReceived = "None";
 
 // Ports to scan
 int ports[10];
@@ -102,21 +108,29 @@ void onEvent(arduino_event_id_t event) {
       Serial.print("MAC: ");
       Serial.println(ETH.macAddress());
       eth_connected = true;
+      deviceMac = ETH.macAddress();
+      wiredIP = ETH.localIP().toString();
       addLog("Ethernet connected - IP: " + ETH.localIP().toString());
       break;
     case ARDUINO_EVENT_ETH_LOST_IP:
       Serial.println("ETH Lost IP");
       eth_connected = false;
+      wiredIP = "";
+      internetAddress = "";
       addLog("Ethernet lost IP");
       break;
     case ARDUINO_EVENT_ETH_DISCONNECTED:
       Serial.println("ETH Disconnected");
       eth_connected = false;
+      wiredIP = "";
+      internetAddress = "";
       addLog("Ethernet disconnected");
       break;
     case ARDUINO_EVENT_ETH_STOP:
       Serial.println("ETH Stopped");
       eth_connected = false;
+      wiredIP = "";
+      internetAddress = "";
       addLog("Ethernet stopped");
       break;
     default:
@@ -147,16 +161,19 @@ void setup() {
   if (eth_connected) {
     Serial.println("Ethernet connected!");
     macAddress = ETH.macAddress();
+    deviceMac = macAddress;
     Serial.print("MAC: ");
     Serial.println(macAddress);
     Serial.print("IP: ");
     Serial.println(ETH.localIP());
+    wiredIP = ETH.localIP().toString();
   } else {
     Serial.println("Ethernet connection timeout!");
     // Continue anyway - might connect later
     macAddress = ETH.macAddress();
+    deviceMac = macAddress;
   }
-  
+
   macAddress.replace(":", "");
   macAddress.toLowerCase();
   ap_ssid = "penelope-" + macAddress;
@@ -184,7 +201,7 @@ void setup() {
   
   if (eth_connected) {
     logMessage("WT32-ETH01 Network Scanner Ready");
-    logMessage("MAC Address: " + macAddress);
+    logMessage("MAC Address: " + deviceMac);
     logMessage("IP Address: " + ETH.localIP().toString());
   } else {
     Serial.println("Starting without Ethernet connection...");
@@ -210,6 +227,7 @@ void loop() {
 
   if (eth_connected && !ethPreviouslyConnected) {
     logMessage("Ethernet link restored - IP: " + ETH.localIP().toString());
+    wiredIP = ETH.localIP().toString();
     mqttClient.disconnect();
     if (client.connected()) {
       client.stop();
@@ -218,6 +236,7 @@ void loop() {
     serverFound = false;
     serverIP = "";
     serverPort = 0;
+    internetAddress = "";
     xSemaphoreGive(serverMutex);
 
     currentScanIP = 1;
@@ -257,9 +276,10 @@ void loop() {
         serverFound = false;
         serverIP = "";
         serverPort = 0;
+        internetAddress = "";
         xSemaphoreGive(serverMutex);
         client.stop();
-        
+
         currentScanIP = 1;
         scanComplete = false;
         startNetworkScan();
