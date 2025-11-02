@@ -1,20 +1,36 @@
 // network_scanner.ino
 
+#include <ETH.h>
+
 void startNetworkScan() {
-  IPAddress localIP = WiFi.localIP();
-  IPAddress subnet = WiFi.subnetMask();
+  if (!eth_connected) {
+    addLog("Cannot start scan - Ethernet not connected");
+    return;
+  }
+
+  IPAddress localIP = ETH.localIP();
+  if (localIP == IPAddress(0, 0, 0, 0)) {
+    addLog("Cannot start scan - Ethernet IP not assigned");
+    return;
+  }
+
+  IPAddress subnet = ETH.subnetMask();
   IPAddress network;
-  
+
   for (int i = 0; i < 4; i++) {
     network[i] = localIP[i] & subnet[i];
   }
-  
-  String scanRange = network.toString() + ".1 - " + network.toString().substring(0, network.toString().lastIndexOf('.')) + ".254";
-  
+
+  String prefix = String(network[0]) + "." + String(network[1]) + "." + String(network[2]) + ".";
+  String scanRange = prefix + "1 - " + prefix + "254";
+
+  currentScanIP = 1;
+  scanComplete = false;
+
   addLog("Starting multi-threaded network scan...");
   addLog("Scan range: " + scanRange);
   addLog("Using " + String(NUM_SCAN_TASKS) + " parallel threads");
-  
+
   // Create multiple scanning tasks
   for (int i = 0; i < NUM_SCAN_TASKS; i++) {
     char taskName[20];
@@ -31,25 +47,30 @@ void startNetworkScan() {
 }
 
 void scanTask(void *parameter) {
-  IPAddress localIP = WiFi.localIP();
-  IPAddress subnet = WiFi.subnetMask();
+  IPAddress localIP = ETH.localIP();
+  IPAddress subnet = ETH.subnetMask();
   IPAddress network;
-  
+
   for (int i = 0; i < 4; i++) {
     network[i] = localIP[i] & subnet[i];
   }
-  
+
   while (true) {
+    if (!eth_connected) {
+      vTaskDelete(NULL);
+      return;
+    }
+
     // Check if server already found
     xSemaphoreTake(serverMutex, portMAX_DELAY);
     bool found = serverFound;
     xSemaphoreGive(serverMutex);
-    
+
     if (found) {
       vTaskDelete(NULL); // Delete this task
       return;
     }
-    
+
     // Get next IP to scan
     xSemaphoreTake(scanMutex, portMAX_DELAY);
     int ipToScan = currentScanIP++;
@@ -81,10 +102,10 @@ void scanTask(void *parameter) {
     // Build target IP
     IPAddress targetIP = network;
     targetIP[3] = ipToScan;
-    
+
     // Skip our own IP
     if (targetIP == localIP) continue;
-    
+
     // Show which IP is being scanned
     Serial.print(".");
     if (ipToScan % 50 == 0) Serial.println(); // New line every 50 IPs
