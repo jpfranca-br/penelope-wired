@@ -31,6 +31,7 @@ void connectMQTT();
 void startNetworkScan();
 bool sendCommand();
 void setupAccessPoint();
+void loadWifiSettings();
 void mqttCallback(char* topic, byte* payload, unsigned int length);
 void loadPorts();
 
@@ -47,11 +48,8 @@ const char* mqtt_password = "";
 WebServer server(80);
 Preferences preferences;
 String ap_ssid = "penelope-";
-const char* ap_password = "12345678";
-
-// Boot button configuration (WT32-ETH01 doesn't have one - connect external or disable)
-const int BOOT_BUTTON_PIN = 9;
-const unsigned long LONG_PRESS_TIME = 5000;
+const char* const DEFAULT_AP_PASSWORD = "12345678";
+String ap_password = DEFAULT_AP_PASSWORD;
 
 // MQTT Client
 WiFiClient espClient;
@@ -179,15 +177,11 @@ void setup() {
   ap_ssid = "penelope-" + macAddress;
   mqttTopicBase = "penelope/" + macAddress + "/";
 
-  setupAccessPoint();
-
-  // Skip boot button check if not connected to avoid blocking
-  // pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
-  // delay(1000);
-  // checkBootButton();
-  
   preferences.begin("wifi-config", false);
+  loadWifiSettings();
   loadPorts();
+
+  setupAccessPoint();
   
   // Wait a bit more for Ethernet to stabilize
   if (!eth_connected) {
@@ -297,9 +291,22 @@ void loop() {
   delay(100);
 }
 
+void loadWifiSettings() {
+  String storedPassword = preferences.getString("apPassword", DEFAULT_AP_PASSWORD);
+  if (storedPassword.length() >= 8 && storedPassword.length() <= 63) {
+    ap_password = storedPassword;
+    addLog("Loaded WiFi password from memory");
+  } else {
+    ap_password = DEFAULT_AP_PASSWORD;
+    if (storedPassword.length() > 0 && storedPassword != DEFAULT_AP_PASSWORD) {
+      addLog("Stored WiFi password invalid. Reverting to default");
+    }
+  }
+}
+
 void setupAccessPoint() {
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(ap_ssid.c_str(), ap_password);
+  WiFi.softAP(ap_ssid.c_str(), ap_password.c_str());
 
   IPAddress apIP = WiFi.softAPIP();
 
