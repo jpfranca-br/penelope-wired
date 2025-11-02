@@ -21,7 +21,7 @@ String ssid = "";
 String password = "";
 
 // MQTT Broker settings
-const char* mqtt_broker = "mqtt.jpfranca.com";
+const char* mqtt_broker = "broker.hivemq.com";
 const int mqtt_port = 1883;
 const char* mqtt_user = "";
 const char* mqtt_password = "";
