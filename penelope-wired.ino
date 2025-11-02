@@ -1,8 +1,8 @@
 // wemos32_separated.ino
-#include <WiFi.h>
+#include <Preferences.h>
 #include <PubSubClient.h>
 #include <WebServer.h>
-#include <Preferences.h>
+#include <WiFi.h>
 
 // Ethernet configuration for WT32-ETH01
 #define ETH_PHY_TYPE    ETH_PHY_LAN8720
@@ -14,11 +14,29 @@
 
 #include <ETH.h>
 
-static bool eth_connected = false;
+volatile bool eth_connected = false;
 
-// WiFi credentials
-String ssid = "";
-String password = "";
+// Log buffer shared across modules
+const int MAX_LOG_LINES = 200;
+String logBuffer[MAX_LOG_LINES];
+int logIndex = 0;
+int logCount = 0;
+
+// Forward declarations
+void addLog(String message);
+void handleMonitor();
+void handleLogs();
+void handleCSS();
+void connectMQTT();
+void startNetworkScan();
+bool sendCommand();
+void setupAccessPoint();
+void mqttCallback(char* topic, byte* payload, unsigned int length);
+void loadPorts();
+
+inline void logMessage(const String &message) {
+  addLog(message);
+}
 
 // MQTT Broker settings
 const char* mqtt_broker = "broker.hivemq.com";
@@ -26,10 +44,8 @@ const int mqtt_port = 1883;
 const char* mqtt_user = "";
 const char* mqtt_password = "";
 
-// Configuration Portal
 WebServer server(80);
 Preferences preferences;
-bool configMode = false;
 String ap_ssid = "penelope-";
 const char* ap_password = "12345678";
 
@@ -55,6 +71,9 @@ String serverIP = "";
 int serverPort = 0;
 bool serverFound = false;
 SemaphoreHandle_t serverMutex;
+
+bool ethPreviouslyConnected = false;
+unsigned long lastEthStatusLog = 0;
 
 // Timing
 unsigned long lastCommandTime = 0;
@@ -83,18 +102,22 @@ void onEvent(arduino_event_id_t event) {
       Serial.print("MAC: ");
       Serial.println(ETH.macAddress());
       eth_connected = true;
+      addLog("Ethernet connected - IP: " + ETH.localIP().toString());
       break;
     case ARDUINO_EVENT_ETH_LOST_IP:
       Serial.println("ETH Lost IP");
       eth_connected = false;
+      addLog("Ethernet lost IP");
       break;
     case ARDUINO_EVENT_ETH_DISCONNECTED:
       Serial.println("ETH Disconnected");
       eth_connected = false;
+      addLog("Ethernet disconnected");
       break;
     case ARDUINO_EVENT_ETH_STOP:
       Serial.println("ETH Stopped");
       eth_connected = false;
+      addLog("Ethernet stopped");
       break;
     default:
       break;
@@ -108,7 +131,7 @@ void setup() {
 
   // Setup Ethernet
   Serial.println("Starting Wired Ethernet...");
-  Network.onEvent(onEvent);
+  WiFi.onEvent(onEvent);
   ETH.begin(ETH_PHY_TYPE, ETH_PHY_ADDR, ETH_PHY_MDC, ETH_PHY_MDIO, ETH_PHY_POWER, ETH_CLK_MODE);
   
   // Wait for Ethernet connection with proper delay
@@ -138,7 +161,9 @@ void setup() {
   macAddress.toLowerCase();
   ap_ssid = "penelope-" + macAddress;
   mqttTopicBase = "penelope/" + macAddress + "/";
-  
+
+  setupAccessPoint();
+
   // Skip boot button check if not connected to avoid blocking
   // pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
   // delay(1000);
@@ -163,14 +188,17 @@ void setup() {
     logMessage("IP Address: " + ETH.localIP().toString());
   } else {
     Serial.println("Starting without Ethernet connection...");
+    logMessage("Waiting for Ethernet connection...");
   }
-  
+
   serverMutex = xSemaphoreCreateMutex();
   scanMutex = xSemaphoreCreateMutex();
-  
+
   mqttClient.setServer(mqtt_broker, mqtt_port);
   mqttClient.setCallback(mqttCallback);
-  
+
+  ethPreviouslyConnected = eth_connected;
+
   // Only connect MQTT and scan if Ethernet is up
   if (eth_connected) {
     connectMQTT();
@@ -178,24 +206,49 @@ void setup() {
   }
 }
 void loop() {
-  if (configMode) {
-    server.handleClient();
-    return;
-  }
-  
-  if (!eth_connected && WiFi.status() != WL_CONNECTED) {
-    logMessage("Network disconnected! Reconnecting...");
-    if (!connectToWiFi()) {
-      startConfigPortal();
-      return;
+  server.handleClient();
+
+  if (eth_connected && !ethPreviouslyConnected) {
+    logMessage("Ethernet link restored - IP: " + ETH.localIP().toString());
+    mqttClient.disconnect();
+    if (client.connected()) {
+      client.stop();
+    }
+    xSemaphoreTake(serverMutex, portMAX_DELAY);
+    serverFound = false;
+    serverIP = "";
+    serverPort = 0;
+    xSemaphoreGive(serverMutex);
+
+    currentScanIP = 1;
+    scanComplete = false;
+    connectMQTT();
+    startNetworkScan();
+  } else if (!eth_connected && ethPreviouslyConnected) {
+    logMessage("Ethernet link lost. Waiting for reconnection...");
+    mqttClient.disconnect();
+    if (client.connected()) {
+      client.stop();
     }
   }
-  
+
+  ethPreviouslyConnected = eth_connected;
+
+  if (!eth_connected) {
+    unsigned long now = millis();
+    if (now - lastEthStatusLog > 5000) {
+      addLog("Ethernet disconnected - retrying");
+      lastEthStatusLog = now;
+    }
+    delay(100);
+    return;
+  }
+
   if (!mqttClient.connected()) {
     connectMQTT();
   }
   mqttClient.loop();
-  
+
   if (serverFound) {
     if (millis() - lastCommandTime >= commandInterval) {
       if (!sendCommand()) {
@@ -220,6 +273,28 @@ void loop() {
     scanComplete = false;
     startNetworkScan();
   }
-  
+
   delay(100);
+}
+
+void setupAccessPoint() {
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(ap_ssid.c_str(), ap_password);
+
+  IPAddress apIP = WiFi.softAPIP();
+
+  server.on("/", handleMonitor);
+  server.on("/logs", handleLogs);
+  server.on("/style.css", handleCSS);
+  server.onNotFound([]() {
+    server.send(404, "text/plain", "Not found");
+  });
+  server.begin();
+
+  Serial.print("Access point started: ");
+  Serial.println(ap_ssid);
+  Serial.print("AP IP address: ");
+  Serial.println(apIP);
+
+  addLog("WiFi AP ready: " + ap_ssid + " @ " + apIP.toString());
 }
