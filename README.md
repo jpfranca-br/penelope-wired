@@ -8,28 +8,34 @@ Penelope Wired is a WT32-ETH01 firmware that combines Ethernet backhaul, a Wi-Fi
 - **Wi-Fi role:** Local management access point named `penelope-<mac>` that mirrors the device MAC address without colons.
 
 ## Startup Flow
-1. Initialise serial logging and Ethernet, tracking link state transitions with `WiFi.onEvent` (`onEvent` in `penelope-wired.ino`).
+1. Initialise serial logging and Ethernet, tracking link state transitions with `WiFi.onEvent` (`onEvent` in `network.ino`).
 2. Derive the device MAC, MQTT topic base (`penelope/<mac>/`), and access point SSID.
-3. Open the `wifi-config` namespace in `Preferences`, restore the stored Wi-Fi password and port list (`loadWifiSettings`, `loadPorts`).
+3. Open the `wifi-config` namespace in `Preferences`, restore the stored Wi-Fi password and port list (`loadWifiSettings`, `loadPorts` in `network.ino`).
 4. Start the management access point and HTTP server (`setupAccessPoint`).
 5. Once Ethernet is ready the device connects to MQTT, launches eight parallel scan tasks, and begins polling any discovered server.
 
 ## Multi-threaded Searching
-- `startNetworkScan` (in `network_scanner.ino`) spawns `NUM_SCAN_TASKS = 8` FreeRTOS tasks to sweep the entire /24 subnet derived from the Ethernet IP and mask.
+- `startNetworkScan` (in `network.ino`) spawns `NUM_SCAN_TASKS = 8` FreeRTOS tasks to sweep the entire /24 subnet derived from the Ethernet IP and mask.
 - Each task attempts TCP connections against the configured ports list, defaults `{2001, 1771, 854}`. Successful probes send `(&V)` and wait for a banner response to confirm a target.
 - Progress and discoveries are streamed to the log buffer, MQTT log topic, and the web dashboard.
 - When a server is found the shared state halts all other scan tasks and establishes a persistent TCP client (`client.connect`).
 - Commands can be sent to switch ports dynamically via the `port` MQTT command, which saves the list to flash and restarts the scan automatically.
 
+## Wired Ethernet Configuration
+- `loadWiredConfig` (in `network.ino`) restores the persisted DHCP/static mode and any saved addressing from flash, validating all octets before accepting a static configuration. Invalid entries automatically revert to DHCP so the device always boots with a workable profile.
+- `setWiredConfiguration` (in `network.ino`) powers the MQTT `ipconfig` command and technician web form. It enforces that static mode provides IP, mask, gateway, and DNS values, writes them to `Preferences`, and calls `reconnectEthernetWithConfig` to restart Ethernet with the new settings.
+- The wired interface defaults to DHCP after factory reset or initial flash. Subsequent power cycles reuse the most recent configuration stored under the `ethMode`, `ethIP`, `ethMask`, `ethGateway`, and `ethDns` keys.
+- The technician dashboard exposes a **Config** page where selecting the fixed-IP radio button pre-populates each placeholder with the stored static values, making edits quick and preventing typos.
+
 ## Resilience and Self-healing
-- Ethernet event callbacks clear cached IPs and trigger reconnect logic when the wired link drops (`onEvent`).
+- Ethernet event callbacks clear cached IPs and trigger reconnect logic when the wired link drops (`onEvent` in `network.ino`).
 - MQTT connection attempts are retried up to five times with watchdog-friendly delays (`connectMQTT`).
 - The TCP client uses bounded retries for both reconnects and command polling (`ensureServerConnection`, `sendCommand` in `tcp_server.ino`).
 - Logs are buffered in `logBuffer` (200 entries) and always mirrored to MQTT when available, providing traceability after transient faults.
 - If the TCP server or Ethernet link disappears the scanner automatically restarts the discovery process.
 
 ## Wi-Fi Access Point Management
-- Default password: `12345678`. The current password is persisted in `Preferences` under the `apPassword` key (`loadWifiSettings`).
+- Default password: `12345678`. The current password is persisted in `Preferences` under the `apPassword` key (`loadWifiSettings` in `network.ino`).
 - Command `wifipassword <password>` stores a new WPA2 password (8–63 characters), disconnects all connected stations, and restarts the SoftAP with the updated credentials while keeping the web server running.
 - Factory resets clear the stored password, returning the SoftAP to the default credentials on the next boot.
 
@@ -53,6 +59,7 @@ Commands are received on `penelope/<mac>/command` and are case-insensitive.
 | `factoryreset` | — | Clears all persisted settings (ports and Wi-Fi password), disconnects Wi-Fi clients, and restarts so defaults are restored. |
 | `scan` | — | Stops any active TCP session and restarts the network scan from address `.1`. |
 | `port <p1> [p2 ...]` | 1–10 integers | Saves up to 10 TCP ports, restarts scanning with the new list. |
+| `ipconfig <dhcp|fixed> <ip> <mask> <gateway> <dns>` | `dhcp` or `fixed` plus IP fields (static mode requires all values) | Reconfigures the wired interface, persisting DHCP mode or the supplied static addressing and rebooting Ethernet to apply it. |
 | `wifipassword <password>` | 8–63 character string | Updates the SoftAP password, saves it to flash, disconnects existing stations, and restarts the access point. |
 
 Invalid parameters are rejected with descriptive log entries that surface both on the dashboard and the MQTT log topic.
@@ -64,9 +71,11 @@ Invalid parameters are rejected with descriptive log entries that surface both o
 
 ## Persistence and Factory Reset
 - `Preferences` namespace `wifi-config` keeps the port list (`numPorts`, `port0...`) and SoftAP password across reboots.
+- Wired Ethernet selections live in the same namespace under `ethMode`, `ethIP`, `ethMask`, `ethGateway`, and `ethDns`, letting the device boot straight into the last DHCP/static profile without manual intervention.
 - The `factoryreset` command (or clearing the namespace manually) wipes the stored keys, applies the default Wi-Fi password, and forces a reboot so scanning restarts with default ports.
 
 ## Development Notes
 - All tasks yield frequently to feed the watchdog (`yield()` calls within loops) ensuring stability even during long scans.
 - The firmware gracefully handles missing Ethernet at boot by deferring MQTT and scanning until a link becomes available.
 - HTTP handlers and MQTT callbacks reuse the shared logging utilities, so extending features should mirror the existing `addLog` patterns for consistency.
+- Networking helpers (Ethernet events, Wi-Fi AP management, wired configuration, and scanning utilities) live in `network.ino`, keeping `penelope-wired.ino` focused on orchestrating setup and the main loop.

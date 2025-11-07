@@ -4,6 +4,17 @@
 
 void handleWifiPasswordCommand(String command);
 void handleFactoryResetCommand();
+void handleIpConfigCommand(String command);
+extern bool setWiredConfiguration(bool useDhcp, const String &ip, const String &mask, const String &gateway, const String &dns, String &errorMessage);
+extern bool wiredDhcpEnabled;
+extern String wiredStaticIPStr;
+extern String wiredStaticMaskStr;
+extern String wiredStaticGatewayStr;
+extern String wiredStaticDnsStr;
+extern IPAddress wiredStaticIP;
+extern IPAddress wiredStaticMask;
+extern IPAddress wiredStaticGateway;
+extern IPAddress wiredStaticDns;
 
 void connectMQTT() {
   int attempts = 0;
@@ -160,6 +171,9 @@ void handleCommand(String command) {
   else if (cmdLower.startsWith("port ")) {
     handlePortCommand(command);
   }
+  else if (cmdLower.startsWith("ipconfig")) {
+    handleIpConfigCommand(command);
+  }
   else {
     addLog("Unknown command: " + command);
   }
@@ -287,8 +301,97 @@ void handleFactoryResetCommand() {
   WiFi.softAPdisconnect(true);
   preferences.clear();
   ap_password = DEFAULT_AP_PASSWORD;
+  wiredDhcpEnabled = true;
+  wiredStaticIPStr = "";
+  wiredStaticMaskStr = "";
+  wiredStaticGatewayStr = "";
+  wiredStaticDnsStr = "";
+  wiredStaticIP = IPAddress(0, 0, 0, 0);
+  wiredStaticMask = IPAddress(255, 255, 255, 0);
+  wiredStaticGateway = IPAddress(0, 0, 0, 0);
+  wiredStaticDns = IPAddress(0, 0, 0, 0);
 
   addLog("Preferences cleared. Rebooting...");
   delay(1000);
   ESP.restart();
+}
+
+void handleIpConfigCommand(String command) {
+  String working = command;
+  working.trim();
+
+  int spaceIndex = working.indexOf(' ');
+  if (spaceIndex == -1) {
+    addLog("Usage: ipconfig <dhcp|fixed> <ip> <mask> <gateway> <dns>");
+    return;
+  }
+
+  working = working.substring(spaceIndex + 1);
+  working.trim();
+
+  if (working.length() == 0) {
+    addLog("Usage: ipconfig <dhcp|fixed> <ip> <mask> <gateway> <dns>");
+    return;
+  }
+
+  String tokens[5];
+  int tokenCount = 0;
+  int startIndex = 0;
+
+  while (tokenCount < 5 && startIndex < working.length()) {
+    int nextSpace = working.indexOf(' ', startIndex);
+    String token;
+    if (nextSpace == -1) {
+      token = working.substring(startIndex);
+      startIndex = working.length();
+    } else {
+      token = working.substring(startIndex, nextSpace);
+      startIndex = nextSpace + 1;
+    }
+
+    token.trim();
+    if (token.length() > 0) {
+      tokens[tokenCount++] = token;
+    }
+  }
+
+  if (tokenCount == 0) {
+    addLog("Usage: ipconfig <dhcp|fixed> <ip> <mask> <gateway> <dns>");
+    return;
+  }
+
+  String mode = tokens[0];
+  mode.toLowerCase();
+
+  String errorMessage;
+
+  if (mode == "dhcp") {
+    if (setWiredConfiguration(true, "", "", "", "", errorMessage)) {
+      addLog("Ethernet configured for DHCP via MQTT");
+    } else {
+      addLog("Failed to apply DHCP configuration: " + errorMessage);
+    }
+    return;
+  }
+
+  if (mode != "fixed") {
+    addLog("Unknown IP configuration mode: " + tokens[0]);
+    return;
+  }
+
+  if (tokenCount < 5) {
+    addLog("Usage: ipconfig fixed <ip> <mask> <gateway> <dns>");
+    return;
+  }
+
+  String ip = tokens[1];
+  String mask = tokens[2];
+  String gateway = tokens[3];
+  String dns = tokens[4];
+
+  if (setWiredConfiguration(false, ip, mask, gateway, dns, errorMessage)) {
+    addLog("Ethernet static IP set to " + ip + " via MQTT");
+  } else {
+    addLog("Failed to apply static IP configuration: " + errorMessage);
+  }
 }
