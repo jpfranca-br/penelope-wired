@@ -6,6 +6,14 @@ String escapeJson(String value) {
   return value;
 }
 
+void sendConfigPage(const String &message, bool success);
+extern bool isWiredDhcp();
+extern String getWiredIpSetting();
+extern String getWiredMaskSetting();
+extern String getWiredGatewaySetting();
+extern String getWiredDnsSetting();
+extern bool setWiredConfiguration(bool useDhcp, const String &ip, const String &mask, const String &gateway, const String &dns, String &errorMessage);
+
 void handleMonitor() {
   String html = "<!DOCTYPE html><html><head>";
   html += "<meta charset='UTF-8'>";
@@ -54,7 +62,9 @@ void handleMonitor() {
   html += "<span id='wired-ip'>Wired IP: --</span>";
   html += "<span id='internet-ip'>Internet: --</span>";
   html += "<span id='status' class='status'>Checking...</span>";
-  html += "</div></div>";
+  html += "</div>";
+  html += "<a class='config-button' href='/config'>Config</a>";
+  html += "</div>";
   html += "<div class='summary'>";
   html += "<div class='summary-card full'><h2>Last Command</h2><div class='summary-value' id='last-command'>None</div></div>";
   html += "</div>";
@@ -109,6 +119,8 @@ void handleCSS() {
   css += ".header { background: #1a1a1a; padding: 15px 20px; border-bottom: 2px solid #00ff00; }";
   css += ".header h1 { font-size: 24px; margin-bottom: 10px; }";
   css += ".info { display: flex; gap: 20px; font-size: 14px; flex-wrap: wrap; align-items: center; }";
+  css += ".config-button { margin-left: auto; padding: 6px 14px; border: 1px solid #00ff00; border-radius: 4px; color: #00ff00; text-decoration: none; font-size: 14px; transition: background 0.2s ease; }";
+  css += ".config-button:hover { background: #00ff00; color: #000; }";
   css += ".status { padding: 2px 8px; border-radius: 3px; font-weight: bold; }";
   css += ".status.connected { background: #00ff00; color: #000; }";
   css += ".status.disconnected { background: #ff0000; color: #fff; }";
@@ -129,6 +141,138 @@ void handleCSS() {
   css += "::-webkit-scrollbar-track { background: #1a1a1a; }";
   css += "::-webkit-scrollbar-thumb { background: #00ff00; border-radius: 5px; }";
   css += "::-webkit-scrollbar-thumb:hover { background: #00cc00; }";
-  
+  css += ".config-container { max-width: 520px; margin: 40px auto; background: #0f1f0f; border: 1px solid #00ff00; border-radius: 8px; padding: 20px; box-shadow: 0 0 20px rgba(0, 255, 0, 0.1); }";
+  css += ".config-container h1 { font-size: 22px; margin-bottom: 10px; text-align: center; }";
+  css += ".config-description { font-size: 14px; margin-bottom: 20px; color: #7fff7f; text-align: center; }";
+  css += ".config-form { display: flex; flex-direction: column; gap: 16px; }";
+  css += ".mode-selection { display: flex; gap: 20px; justify-content: center; }";
+  css += ".mode-selection label { display: flex; align-items: center; gap: 6px; cursor: pointer; }";
+  css += ".static-fields { display: grid; gap: 12px; grid-template-columns: 1fr; }";
+  css += ".static-fields label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: #7fff7f; }";
+  css += ".static-fields input { padding: 10px; background: #000; border: 1px solid #00ff00; border-radius: 4px; color: #00ff00; font-family: inherit; }";
+  css += ".config-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; }";
+  css += ".config-actions button { flex: 1; padding: 10px; background: #00ff00; color: #000; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; transition: background 0.2s ease; }";
+  css += ".config-actions button:hover { background: #00cc00; }";
+  css += ".back-button { flex: 1; text-align: center; padding: 10px; border: 1px solid #00ff00; border-radius: 4px; text-decoration: none; color: #00ff00; font-weight: bold; transition: background 0.2s ease; }";
+  css += ".back-button:hover { background: #00ff00; color: #000; }";
+  css += ".config-message { padding: 10px; border-radius: 4px; text-align: center; font-size: 14px; }";
+  css += ".config-message.success { border: 1px solid #00ff00; color: #00ff00; }";
+  css += ".config-message.error { border: 1px solid #ff0000; color: #ff8080; }";
+  css += "@media (max-width: 480px) { .config-actions { flex-direction: column; } .config-button { margin-left: 0; margin-top: 10px; } }";
+
   server.send(200, "text/css", css);
+}
+
+void sendConfigPage(const String &message, bool success) {
+  bool useDhcp = isWiredDhcp();
+
+  String ipSetting = getWiredIpSetting();
+  String maskSetting = getWiredMaskSetting();
+  String gatewaySetting = getWiredGatewaySetting();
+  String dnsSetting = getWiredDnsSetting();
+
+  String ipPlaceholder = ipSetting.length() > 0 ? ipSetting : "192.168.1.200";
+  String maskPlaceholder = maskSetting.length() > 0 ? maskSetting : "255.255.255.0";
+  String gatewayPlaceholder = gatewaySetting.length() > 0 ? gatewaySetting : "192.168.1.1";
+  String dnsPlaceholder = dnsSetting.length() > 0 ? dnsSetting : "8.8.8.8";
+
+  String html = "<!DOCTYPE html><html><head>";
+  html += "<meta charset='UTF-8'>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<title>Ethernet Configuration</title>";
+  html += "<link rel='stylesheet' href='/style.css'>";
+  html += "</head><body>";
+  html += "<div class='config-container'>";
+  html += "<h1>Ethernet Configuration</h1>";
+  html += "<p class='config-description'>Choose DHCP or define a fixed IP address for the wired interface.</p>";
+
+  if (message.length() > 0) {
+    html += "<div class='config-message ";
+    html += success ? "success'>" : "error'>";
+    html += message;
+    html += "</div>";
+  }
+
+  html += "<form method='POST' action='/config' class='config-form'>";
+  html += "<div class='mode-selection'>";
+  html += "<label><input type='radio' id='mode-dhcp' name='mode' value='dhcp'";
+  if (useDhcp) html += " checked";
+  html += ">DHCP</label>";
+  html += "<label><input type='radio' id='mode-fixed' name='mode' value='fixed'";
+  if (!useDhcp) html += " checked";
+  html += ">Fixed</label>";
+  html += "</div>";
+
+  html += "<div id='static-fields' class='static-fields'>";
+  html += "<label>IP Address<input type='text' name='ip' placeholder='" + ipPlaceholder + "' value='";
+  html += useDhcp ? "" : ipSetting;
+  html += "'></label>";
+  html += "<label>Subnet Mask<input type='text' name='mask' placeholder='" + maskPlaceholder + "' value='";
+  html += useDhcp ? "" : maskSetting;
+  html += "'></label>";
+  html += "<label>Gateway<input type='text' name='gateway' placeholder='" + gatewayPlaceholder + "' value='";
+  html += useDhcp ? "" : gatewaySetting;
+  html += "'></label>";
+  html += "<label>DNS<input type='text' name='dns' placeholder='" + dnsPlaceholder + "' value='";
+  html += useDhcp ? "" : dnsSetting;
+  html += "'></label>";
+  html += "</div>";
+
+  html += "<div class='config-actions'>";
+  html += "<button type='submit'>Apply</button>";
+  html += "<a class='back-button' href='/'>Back</a>";
+  html += "</div>";
+  html += "</form>";
+  html += "</div>";
+
+  html += "<script>";
+  html += "const dhcpRadio=document.getElementById('mode-dhcp');";
+  html += "const fixedRadio=document.getElementById('mode-fixed');";
+  html += "const staticFields=document.getElementById('static-fields');";
+  html += "function updateMode(){const fixed=fixedRadio.checked;staticFields.style.display=fixed?'grid':'none';staticFields.querySelectorAll('input').forEach(el=>el.required=fixed);}";
+  html += "dhcpRadio.addEventListener('change',updateMode);";
+  html += "fixedRadio.addEventListener('change',updateMode);";
+  html += "updateMode();";
+  html += "</script>";
+
+  html += "</body></html>";
+
+  server.send(200, "text/html", html);
+}
+
+void handleConfigPage() {
+  sendConfigPage("", true);
+}
+
+void handleConfigSubmit() {
+  if (!server.hasArg("mode")) {
+    sendConfigPage("Configuration mode is required", false);
+    return;
+  }
+
+  String mode = server.arg("mode");
+  mode.trim();
+  mode.toLowerCase();
+
+  bool useDhcp;
+  if (mode == "dhcp") {
+    useDhcp = true;
+  } else if (mode == "fixed") {
+    useDhcp = false;
+  } else {
+    sendConfigPage("Unknown configuration mode", false);
+    return;
+  }
+
+  String ip = server.hasArg("ip") ? server.arg("ip") : "";
+  String mask = server.hasArg("mask") ? server.arg("mask") : "";
+  String gateway = server.hasArg("gateway") ? server.arg("gateway") : "";
+  String dns = server.hasArg("dns") ? server.arg("dns") : "";
+
+  String errorMessage;
+  if (setWiredConfiguration(useDhcp, ip, mask, gateway, dns, errorMessage)) {
+    sendConfigPage("Wired Ethernet configuration updated.", true);
+  } else {
+    sendConfigPage("Configuration error: " + errorMessage, false);
+  }
 }

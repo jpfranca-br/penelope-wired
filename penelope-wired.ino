@@ -3,7 +3,6 @@
 #include <PubSubClient.h>
 #include <WebServer.h>
 #include <WiFi.h>
-#include <HTTPClient.h>
 
 // Ethernet configuration for WT32-ETH01
 #define ETH_PHY_TYPE    ETH_PHY_LAN8720
@@ -28,14 +27,25 @@ void addLog(String message);
 void handleMonitor();
 void handleLogs();
 void handleCSS();
+void handleConfigPage();
+void handleConfigSubmit();
 void connectMQTT();
 void startNetworkScan();
 bool sendCommand();
 void setupAccessPoint();
 void loadWifiSettings();
+void loadWiredConfig();
+bool setWiredConfiguration(bool useDhcp, const String &ip, const String &mask, const String &gateway, const String &dns, String &errorMessage);
+bool isWiredDhcp();
+String getWiredIpSetting();
+String getWiredMaskSetting();
+String getWiredGatewaySetting();
+String getWiredDnsSetting();
 void mqttCallback(char* topic, byte* payload, unsigned int length);
 void loadPorts();
 void refreshPublicIP();
+void applyWiredConfigToDriver(bool logOutcome);
+void reconnectEthernetWithConfig();
 
 inline void logMessage(const String &message) {
   addLog(message);
@@ -66,6 +76,16 @@ String lastRequestSent = "None";
 String lastResponseReceived = "None";
 String runningTotal = "None";
 
+bool wiredDhcpEnabled = true;
+IPAddress wiredStaticIP(0, 0, 0, 0);
+IPAddress wiredStaticMask(255, 255, 255, 0);
+IPAddress wiredStaticGateway(0, 0, 0, 0);
+IPAddress wiredStaticDns(0, 0, 0, 0);
+String wiredStaticIPStr = "";
+String wiredStaticMaskStr = "";
+String wiredStaticGatewayStr = "";
+String wiredStaticDnsStr = "";
+
 unsigned long lastPublicIPCheck = 0;
 const unsigned long PUBLIC_IP_REFRESH_INTERVAL = 300000; // 5 minutes
 bool publicIPRefreshRequested = false;
@@ -91,78 +111,24 @@ unsigned long lastCommandTime = 0;
 const unsigned long commandInterval = 5000;
 
 // Scanning
-#define NUM_SCAN_TASKS 8
 volatile int currentScanIP = 1;
 volatile bool scanComplete = false;
 SemaphoreHandle_t scanMutex;
-
-// Ethernet event handler
-void onEvent(arduino_event_id_t event) {
-  switch (event) {
-    case ARDUINO_EVENT_ETH_START:
-      Serial.println("ETH Started");
-      ETH.setHostname("penelope-eth");
-      break;
-    case ARDUINO_EVENT_ETH_CONNECTED:
-      Serial.println("ETH Connected");
-      break;
-    case ARDUINO_EVENT_ETH_GOT_IP:
-      Serial.println("ETH Got IP");
-      Serial.print("IP Address: ");
-      Serial.println(ETH.localIP());
-      Serial.print("MAC: ");
-      Serial.println(ETH.macAddress());
-      eth_connected = true;
-      deviceMac = ETH.macAddress();
-      wiredIP = ETH.localIP().toString();
-      publicIPRefreshRequested = true;
-      addLog("Ethernet connected - IP: " + ETH.localIP().toString());
-      break;
-    case ARDUINO_EVENT_ETH_LOST_IP:
-      Serial.println("ETH Lost IP");
-      eth_connected = false;
-      wiredIP = "";
-      internetAddress = "";
-      runningTotal = "None";
-      publicIPRefreshRequested = false;
-      lastPublicIPCheck = 0;
-      addLog("Ethernet lost IP");
-      break;
-    case ARDUINO_EVENT_ETH_DISCONNECTED:
-      Serial.println("ETH Disconnected");
-      eth_connected = false;
-      wiredIP = "";
-      internetAddress = "";
-      runningTotal = "None";
-      publicIPRefreshRequested = false;
-      lastPublicIPCheck = 0;
-      addLog("Ethernet disconnected");
-      break;
-    case ARDUINO_EVENT_ETH_STOP:
-      Serial.println("ETH Stopped");
-      eth_connected = false;
-      wiredIP = "";
-      internetAddress = "";
-      runningTotal = "None";
-      publicIPRefreshRequested = false;
-      lastPublicIPCheck = 0;
-      addLog("Ethernet stopped");
-      break;
-    default:
-      break;
-  }
-}
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
   Serial.println("\nWT32-ETH01 Multi-threaded Network Scanner");
 
+  preferences.begin("wifi-config", false);
+  loadWiredConfig();
+
   // Setup Ethernet
   Serial.println("Starting Wired Ethernet...");
   WiFi.onEvent(onEvent);
   ETH.begin(ETH_PHY_TYPE, ETH_PHY_ADDR, ETH_PHY_MDC, ETH_PHY_MDIO, ETH_PHY_POWER, ETH_CLK_MODE);
-  
+  applyWiredConfigToDriver(true);
+
   // Wait for Ethernet connection with proper delay
   int eth_wait = 0;
   while (!eth_connected && eth_wait < 40) {  // Increased from 20 to 40
@@ -195,7 +161,6 @@ void setup() {
   ap_ssid = "penelope-" + macAddress;
   mqttTopicBase = "penelope/" + macAddress + "/";
 
-  preferences.begin("wifi-config", false);
   loadWifiSettings();
   loadPorts();
 
@@ -324,69 +289,3 @@ void loop() {
   delay(100);
 }
 
-void loadWifiSettings() {
-  String storedPassword = preferences.getString("apPassword", DEFAULT_AP_PASSWORD);
-  if (storedPassword.length() >= 8 && storedPassword.length() <= 63) {
-    ap_password = storedPassword;
-    addLog("Loaded WiFi password from memory");
-  } else {
-    ap_password = DEFAULT_AP_PASSWORD;
-    if (storedPassword.length() > 0 && storedPassword != DEFAULT_AP_PASSWORD) {
-      addLog("Stored WiFi password invalid. Reverting to default");
-    }
-  }
-}
-
-void setupAccessPoint() {
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(ap_ssid.c_str(), ap_password.c_str());
-
-  IPAddress apIP = WiFi.softAPIP();
-
-  server.on("/", handleMonitor);
-  server.on("/logs", handleLogs);
-  server.on("/style.css", handleCSS);
-  server.onNotFound([]() {
-    server.send(404, "text/plain", "Not found");
-  });
-  server.begin();
-
-  Serial.print("Access point started: ");
-  Serial.println(ap_ssid);
-  Serial.print("AP IP address: ");
-  Serial.println(apIP);
-
-  addLog("WiFi AP ready: " + ap_ssid + " @ " + apIP.toString());
-}
-
-void refreshPublicIP() {
-  if (!eth_connected) {
-    publicIPRefreshRequested = true;
-    return;
-  }
-
-  publicIPRefreshRequested = false;
-  lastPublicIPCheck = millis();
-
-  HTTPClient http;
-  http.setTimeout(4000);
-  if (!http.begin("http://api.ipify.org")) {
-    addLog("Failed to start public IP request");
-    return;
-  }
-
-  int httpCode = http.GET();
-  if (httpCode == HTTP_CODE_OK) {
-    String ip = http.getString();
-    ip.trim();
-    if (ip.length() > 0) {
-      internetAddress = ip;
-    } else {
-      addLog("Received empty public IP response");
-    }
-  } else {
-    addLog("Public IP request failed: HTTP " + String(httpCode));
-  }
-
-  http.end();
-}
