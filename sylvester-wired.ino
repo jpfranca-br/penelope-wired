@@ -62,7 +62,7 @@ const char* mqtt_password = "";
 
 WebServer server(80);
 Preferences preferences;
-String ap_ssid = "penelope-";
+String ap_ssid = "sylvester-";
 const char* const DEFAULT_AP_PASSWORD = "12345678";
 String ap_password = DEFAULT_AP_PASSWORD;
 
@@ -165,8 +165,8 @@ void setup() {
 
   macAddress.replace(":", "");
   macAddress.toLowerCase();
-  ap_ssid = "penelope-" + macAddress;
-  mqttTopicBase = "penelope/" + macAddress + "/";
+  ap_ssid = "sylvester-" + macAddress;
+  mqttTopicBase = "sylvester/" + macAddress + "/";
 
   loadWifiSettings();
   loadPorts();
