@@ -2,9 +2,55 @@
 
 // mqtt_functions.ino
 
+#include <stdint.h>
+#include <stdio.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+#ifndef tskNO_AFFINITY
+#define tskNO_AFFINITY -1
+#endif
+
 void handleWifiPasswordCommand(String command);
 void handleFactoryResetCommand();
 void handleIpConfigCommand(String command);
+void initializeCommandScheduler();
+void handleMqttRequest(const String &payload);
+uint32_t calculateCommandCrc32(const String &command);
+String buildResponseTopic(const String &command);
+bool parseRequestPayload(const String &payload, String &command, unsigned long &intervalMs, bool &sendAlways);
+bool sendCommandAndMaybePublish(int slotIndex, const String &command, bool sendAlways);
+bool sendCommandToTcpServer(const String &command, String &responseOut);
+int reserveSlotForCommand(const String &command);
+int getActiveWorkerCount();
+void startCommandWorker(int slotIndex);
+void commandTask(void *param);
+bool parseUnsignedLong(const String &value, unsigned long &result);
+
+const unsigned long COMMAND_RESPONSE_TIMEOUT_MS = 2000;
+const int MAX_COMMAND_SLOTS = 8;
+int maxCommandWorkers = MAX_COMMAND_SLOTS;
+
+struct CommandSlot {
+  bool inUse = false;
+  bool active = false;
+  bool sendAlways = false;
+  bool triggerImmediate = false;
+  bool terminateAfterNext = false;
+  unsigned long intervalMs = 0;
+  unsigned long nextRun = 0;
+  String command = "";
+  String lastResponse = "";
+  bool hasLastResponse = false;
+  TaskHandle_t taskHandle = nullptr;
+};
+
+CommandSlot commandSlots[MAX_COMMAND_SLOTS];
+SemaphoreHandle_t commandSlotsMutex = nullptr;
+
+const uint16_t COMMAND_TASK_STACK_SIZE = 4096;
+const UBaseType_t COMMAND_TASK_PRIORITY = 1;
+
 extern bool setWiredConfiguration(bool useDhcp, const String &ip, const String &mask, const String &gateway, const String &dns, String &errorMessage);
 extern bool wiredDhcpEnabled;
 extern String wiredStaticIPStr;
@@ -80,52 +126,516 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   for (unsigned int i = 0; i < length; i++) {
     message += (char)payload[i];
   }
-  
+
   String topicStr = String(topic);
-  
+
   // Check if it's a command topic
   if (topicStr.endsWith("/command")) {
     handleCommand(message);
     return;
   }
-  
-  // Otherwise it's a request topic - send to server
-  addLog("MQTT Request received: " + message);
-  lastRequestSent = message;
-  
-  // Send command to server if connected
-  if (serverFound && client.connected()) {
-    Serial.print("Sending to server: ");
-    Serial.println(message);
-    
-    client.println(message);
-    client.flush();
-    
-    // Wait for response
-    unsigned long startTime = millis();
-    while (!client.available() && (millis() - startTime < 2000)) {
-      delay(10);
+
+  // Otherwise it's a request topic - process according to scheduler rules
+  handleMqttRequest(message);
+}
+
+void initializeCommandScheduler() {
+  if (commandSlotsMutex == nullptr) {
+    commandSlotsMutex = xSemaphoreCreateMutex();
+  }
+
+  if (commandSlotsMutex == nullptr) {
+    addLog("Failed to initialize command scheduler");
+    return;
+  }
+
+  xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+  for (int i = 0; i < MAX_COMMAND_SLOTS; ++i) {
+    commandSlots[i].inUse = false;
+    commandSlots[i].active = false;
+    commandSlots[i].sendAlways = false;
+    commandSlots[i].triggerImmediate = false;
+    commandSlots[i].terminateAfterNext = false;
+    commandSlots[i].intervalMs = 0;
+    commandSlots[i].nextRun = 0;
+    commandSlots[i].command = "";
+    commandSlots[i].lastResponse = "";
+    commandSlots[i].hasLastResponse = false;
+    commandSlots[i].taskHandle = nullptr;
+  }
+  xSemaphoreGive(commandSlotsMutex);
+}
+
+bool parseUnsignedLong(const String &value, unsigned long &result) {
+  if (value.length() == 0) {
+    return false;
+  }
+
+  unsigned long parsed = 0;
+  for (size_t i = 0; i < value.length(); ++i) {
+    char c = value.charAt(i);
+    if (c < '0' || c > '9') {
+      return false;
     }
-    
-    if (client.available()) {
-      String response = client.readStringUntil('\n');
-      Serial.print("Server response: ");
-      Serial.println(response);
-      
-      // Send response to MQTT
-      lastResponseReceived = response;
-      if (mqttClient.connected()) {
-        String responseTopic = mqttTopicBase + "response";
-        mqttClient.publish(responseTopic.c_str(), response.c_str());
+    parsed = parsed * 10 + (c - '0');
+  }
+
+  result = parsed;
+  return true;
+}
+
+bool parseRequestPayload(const String &payload, String &command, unsigned long &intervalMs, bool &sendAlways) {
+  String trimmed = payload;
+  trimmed.trim();
+
+  if (trimmed.length() == 0) {
+    return false;
+  }
+
+  intervalMs = 0;
+  sendAlways = false;
+  command = trimmed;
+
+  int metadataSeparator = trimmed.indexOf('|');
+  if (metadataSeparator == -1) {
+    return command.length() > 0;
+  }
+
+  String commandPart = trimmed.substring(0, metadataSeparator);
+  String metadataPart = trimmed.substring(metadataSeparator + 1);
+  commandPart.trim();
+  metadataPart.trim();
+
+  if (commandPart.length() == 0) {
+    return false;
+  }
+
+  String intervalToken = metadataPart;
+  String flagToken = "";
+
+  int secondSeparator = metadataPart.indexOf('|');
+  if (secondSeparator != -1) {
+    intervalToken = metadataPart.substring(0, secondSeparator);
+    flagToken = metadataPart.substring(secondSeparator + 1);
+  }
+
+  intervalToken.trim();
+  flagToken.trim();
+
+  bool metadataValid = true;
+
+  if (intervalToken.length() > 0) {
+    unsigned long parsedInterval = 0;
+    if (parseUnsignedLong(intervalToken, parsedInterval)) {
+      intervalMs = parsedInterval;
+    } else {
+      metadataValid = false;
+    }
+  }
+
+  if (flagToken.length() > 0) {
+    if (flagToken.equals("0")) {
+      sendAlways = false;
+    } else if (flagToken.equals("1")) {
+      sendAlways = true;
+    } else {
+      metadataValid = false;
+    }
+  }
+
+  if (!metadataValid) {
+    command = trimmed;
+    intervalMs = 0;
+    sendAlways = false;
+    return command.length() > 0;
+  }
+
+  command = commandPart;
+  return command.length() > 0;
+}
+
+int reserveSlotForCommand(const String &command) {
+  if (commandSlotsMutex == nullptr) {
+    return -1;
+  }
+
+  xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+
+  for (int i = 0; i < MAX_COMMAND_SLOTS; ++i) {
+    if (commandSlots[i].inUse && commandSlots[i].command.equals(command)) {
+      int existingIndex = i;
+      xSemaphoreGive(commandSlotsMutex);
+      return existingIndex;
+    }
+  }
+
+  int freeIndex = -1;
+  for (int i = 0; i < MAX_COMMAND_SLOTS; ++i) {
+    if (!commandSlots[i].inUse) {
+      freeIndex = i;
+      break;
+    }
+  }
+
+  if (freeIndex == -1) {
+    for (int i = 0; i < MAX_COMMAND_SLOTS; ++i) {
+      if (!commandSlots[i].active) {
+        freeIndex = i;
+        break;
+      }
+    }
+  }
+
+  if (freeIndex != -1) {
+    CommandSlot &slot = commandSlots[freeIndex];
+    slot.inUse = true;
+    slot.active = false;
+    slot.sendAlways = false;
+    slot.triggerImmediate = false;
+    slot.terminateAfterNext = false;
+    slot.intervalMs = 0;
+    slot.nextRun = 0;
+    slot.taskHandle = nullptr;
+    if (!slot.command.equals(command)) {
+      slot.lastResponse = "";
+      slot.hasLastResponse = false;
+    }
+    slot.command = command;
+  }
+
+  xSemaphoreGive(commandSlotsMutex);
+  return freeIndex;
+}
+
+int getActiveWorkerCount() {
+  if (commandSlotsMutex == nullptr) {
+    return 0;
+  }
+
+  int count = 0;
+  xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+  for (int i = 0; i < MAX_COMMAND_SLOTS; ++i) {
+    if (commandSlots[i].active) {
+      count++;
+    }
+  }
+  xSemaphoreGive(commandSlotsMutex);
+  return count;
+}
+
+void startCommandWorker(int slotIndex) {
+  if (slotIndex < 0 || slotIndex >= MAX_COMMAND_SLOTS) {
+    return;
+  }
+  if (commandSlotsMutex == nullptr) {
+    return;
+  }
+
+  unsigned long intervalMs = 0;
+  String command;
+
+  xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+  CommandSlot &slot = commandSlots[slotIndex];
+  slot.active = true;
+  slot.triggerImmediate = true;
+  slot.terminateAfterNext = false;
+  slot.nextRun = 0;
+  intervalMs = slot.intervalMs;
+  command = slot.command;
+  xSemaphoreGive(commandSlotsMutex);
+
+  BaseType_t result = xTaskCreatePinnedToCore(
+    commandTask,
+    "cmd_worker",
+    COMMAND_TASK_STACK_SIZE,
+    reinterpret_cast<void *>(static_cast<intptr_t>(slotIndex)),
+    COMMAND_TASK_PRIORITY,
+    &commandSlots[slotIndex].taskHandle,
+    tskNO_AFFINITY
+  );
+
+  if (result != pdPASS) {
+    addLog("Failed to start command worker for \"" + command + "\"");
+    xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+    commandSlots[slotIndex].active = false;
+    commandSlots[slotIndex].taskHandle = nullptr;
+    commandSlots[slotIndex].triggerImmediate = false;
+    xSemaphoreGive(commandSlotsMutex);
+  } else {
+    addLog("Started command worker for \"" + command + "\" @ " + String(intervalMs) + "ms");
+  }
+}
+
+void commandTask(void *param) {
+  int slotIndex = static_cast<int>(reinterpret_cast<intptr_t>(param));
+
+  while (true) {
+    if (commandSlotsMutex == nullptr) {
+      break;
+    }
+
+    String command;
+    bool sendAlways = false;
+    bool shouldSend = false;
+
+    xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+    if (slotIndex < 0 || slotIndex >= MAX_COMMAND_SLOTS) {
+      xSemaphoreGive(commandSlotsMutex);
+      break;
+    }
+
+    CommandSlot &slot = commandSlots[slotIndex];
+    if (!slot.active) {
+      xSemaphoreGive(commandSlotsMutex);
+      break;
+    }
+
+    command = slot.command;
+    sendAlways = slot.sendAlways;
+
+    if (slot.triggerImmediate) {
+      shouldSend = true;
+      slot.triggerImmediate = false;
+    } else if (slot.intervalMs > 0) {
+      unsigned long now = millis();
+      if (slot.nextRun == 0 || now >= slot.nextRun) {
+        shouldSend = true;
+      }
+    }
+
+    xSemaphoreGive(commandSlotsMutex);
+
+    if (shouldSend) {
+      sendCommandAndMaybePublish(slotIndex, command, sendAlways);
+
+      bool shouldExit = false;
+
+      xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+      if (slotIndex >= 0 && slotIndex < MAX_COMMAND_SLOTS) {
+        CommandSlot &slotRef = commandSlots[slotIndex];
+        if (slotRef.intervalMs > 0 && slotRef.active) {
+          slotRef.nextRun = millis() + slotRef.intervalMs;
+        } else {
+          slotRef.nextRun = 0;
+        }
+
+        if (slotRef.terminateAfterNext) {
+          slotRef.active = false;
+          slotRef.terminateAfterNext = false;
+          shouldExit = true;
+        }
+      }
+      xSemaphoreGive(commandSlotsMutex);
+
+      if (shouldExit) {
+        addLog("Stopped command worker for \"" + command + "\"");
+        break;
       }
     } else {
-      addLog("No response from server");
-      lastResponseReceived = "No response from server";
+      vTaskDelay(25 / portTICK_PERIOD_MS);
     }
-  } else {
+  }
+
+  if (commandSlotsMutex != nullptr && slotIndex >= 0 && slotIndex < MAX_COMMAND_SLOTS) {
+    xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+    commandSlots[slotIndex].taskHandle = nullptr;
+    commandSlots[slotIndex].active = false;
+    commandSlots[slotIndex].triggerImmediate = false;
+    commandSlots[slotIndex].terminateAfterNext = false;
+    xSemaphoreGive(commandSlotsMutex);
+  }
+
+  vTaskDelete(nullptr);
+}
+
+uint32_t calculateCommandCrc32(const String &command) {
+  uint32_t crc = 0xFFFFFFFF;
+  for (size_t i = 0; i < command.length(); ++i) {
+    uint8_t byte = static_cast<uint8_t>(command.charAt(i));
+    crc ^= byte;
+    for (int bit = 0; bit < 8; ++bit) {
+      if (crc & 1) {
+        crc = (crc >> 1) ^ 0xEDB88320;
+      } else {
+        crc >>= 1;
+      }
+    }
+  }
+  return crc ^ 0xFFFFFFFF;
+}
+
+String buildResponseTopic(const String &command) {
+  uint32_t crc = calculateCommandCrc32(command);
+  char crcBuffer[9];
+  snprintf(crcBuffer, sizeof(crcBuffer), "%08lX", static_cast<unsigned long>(crc));
+  return mqttTopicBase + "response/" + String(crcBuffer);
+}
+
+bool sendCommandToTcpServer(const String &command, String &responseOut) {
+  lastRequestSent = command;
+
+  if (!serverFound) {
     addLog("Cannot send command - server not connected");
     lastResponseReceived = "Server not connected";
+    return false;
   }
+
+  xSemaphoreTake(serverMutex, portMAX_DELAY);
+
+  bool connected = serverFound && client.connected();
+  if (!connected) {
+    xSemaphoreGive(serverMutex);
+    addLog("Cannot send command - server not connected");
+    lastResponseReceived = "Server not connected";
+    return false;
+  }
+
+  Serial.print("Sending to server: ");
+  Serial.println(command);
+
+  client.println(command);
+  client.flush();
+
+  unsigned long startTime = millis();
+  while (!client.available() && (millis() - startTime < COMMAND_RESPONSE_TIMEOUT_MS)) {
+    delay(10);
+    yield();
+  }
+
+  bool received = false;
+  if (client.available()) {
+    responseOut = client.readStringUntil('\n');
+    Serial.print("Server response: ");
+    Serial.println(responseOut);
+    received = true;
+  } else {
+    responseOut = "No response from server";
+    addLog("No response from server");
+  }
+
+  xSemaphoreGive(serverMutex);
+
+  lastResponseReceived = responseOut;
+  return received;
+}
+
+bool sendCommandAndMaybePublish(int slotIndex, const String &command, bool sendAlways) {
+  String response;
+  bool received = sendCommandToTcpServer(command, response);
+
+  if (!received) {
+    return false;
+  }
+
+  bool shouldPublish = sendAlways;
+  String previousResponse = "";
+  bool hasPreviousResponse = false;
+
+  if (slotIndex >= 0 && slotIndex < MAX_COMMAND_SLOTS && commandSlotsMutex != nullptr) {
+    xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+    CommandSlot &slot = commandSlots[slotIndex];
+    hasPreviousResponse = slot.hasLastResponse;
+    previousResponse = slot.lastResponse;
+    xSemaphoreGive(commandSlotsMutex);
+  }
+
+  if (!sendAlways) {
+    if (!hasPreviousResponse || response != previousResponse) {
+      shouldPublish = true;
+    } else {
+      shouldPublish = false;
+    }
+  }
+
+  if (shouldPublish && mqttClient.connected()) {
+    String topic = buildResponseTopic(command);
+    mqttClient.publish(topic.c_str(), response.c_str());
+  }
+
+  if (slotIndex >= 0 && slotIndex < MAX_COMMAND_SLOTS && commandSlotsMutex != nullptr) {
+    xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+    CommandSlot &slot = commandSlots[slotIndex];
+    slot.lastResponse = response;
+    slot.hasLastResponse = true;
+    xSemaphoreGive(commandSlotsMutex);
+  }
+
+  return true;
+}
+
+void handleMqttRequest(const String &payload) {
+  addLog("MQTT Request received: " + payload);
+
+  String command;
+  unsigned long intervalMs = 0;
+  bool sendAlways = false;
+
+  if (!parseRequestPayload(payload, command, intervalMs, sendAlways)) {
+    addLog("Invalid request payload format");
+    return;
+  }
+
+  int slotIndex = reserveSlotForCommand(command);
+  if (slotIndex == -1) {
+    addLog("Unable to reserve slot for command: " + command + ". Executing once without scheduling.");
+    sendCommandAndMaybePublish(-1, command, sendAlways);
+    return;
+  }
+
+  if (intervalMs == 0) {
+    bool hadActiveWorker = false;
+
+    if (commandSlotsMutex != nullptr) {
+      xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+      CommandSlot &slot = commandSlots[slotIndex];
+      slot.sendAlways = sendAlways;
+      hadActiveWorker = slot.active;
+      if (slot.active) {
+        slot.intervalMs = 0;
+        slot.terminateAfterNext = true;
+        slot.triggerImmediate = true;
+      }
+      xSemaphoreGive(commandSlotsMutex);
+    }
+
+    if (hadActiveWorker) {
+      addLog("Stopping repeating command \"" + command + "\" after next response");
+    } else {
+      sendCommandAndMaybePublish(slotIndex, command, sendAlways);
+    }
+    return;
+  }
+
+  if (commandSlotsMutex != nullptr) {
+    xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+    CommandSlot &slot = commandSlots[slotIndex];
+    slot.sendAlways = sendAlways;
+    slot.intervalMs = intervalMs;
+    slot.terminateAfterNext = false;
+    slot.triggerImmediate = true;
+    slot.nextRun = 0;
+    xSemaphoreGive(commandSlotsMutex);
+  }
+
+  bool alreadyActive = false;
+  if (commandSlotsMutex != nullptr) {
+    xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+    alreadyActive = commandSlots[slotIndex].active;
+    xSemaphoreGive(commandSlotsMutex);
+  }
+
+  if (alreadyActive) {
+    addLog("Updated command \"" + command + "\" interval to " + String(intervalMs) + "ms");
+    return;
+  }
+
+  if (getActiveWorkerCount() >= maxCommandWorkers) {
+    addLog("Maximum command workers reached. Executing \"" + command + "\" once only");
+    sendCommandAndMaybePublish(slotIndex, command, sendAlways);
+    return;
+  }
+
+  startCommandWorker(slotIndex);
 }
 
 void handleCommand(String command) {

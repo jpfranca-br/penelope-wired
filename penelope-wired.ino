@@ -30,6 +30,7 @@ void handleCSS();
 void handleConfigPage();
 void handleConfigSubmit();
 void connectMQTT();
+void initializeCommandScheduler();
 void startNetworkScan();
 bool sendCommand();
 void setupAccessPoint();
@@ -187,6 +188,7 @@ void setup() {
   }
 
   serverMutex = xSemaphoreCreateMutex();
+  initializeCommandScheduler();
   scanMutex = xSemaphoreCreateMutex();
 
   mqttClient.setServer(mqtt_broker, mqtt_port);
