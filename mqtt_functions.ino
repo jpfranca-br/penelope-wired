@@ -26,7 +26,6 @@ int getActiveWorkerCount();
 void startCommandWorker(int slotIndex);
 void commandTask(void *param);
 bool parseUnsignedLong(const String &value, unsigned long &result);
-int findLastSeparator(const String &value);
 
 const unsigned long COMMAND_RESPONSE_TIMEOUT_MS = 2000;
 const int MAX_COMMAND_SLOTS = 8;
@@ -167,18 +166,6 @@ void initializeCommandScheduler() {
   xSemaphoreGive(commandSlotsMutex);
 }
 
-int findLastSeparator(const String &value) {
-  int lastIndex = -1;
-  const char separators[] = {' ', '\t', '\n', '\r', '|'};
-  for (size_t i = 0; i < sizeof(separators); ++i) {
-    int idx = value.lastIndexOf(separators[i]);
-    if (idx > lastIndex) {
-      lastIndex = idx;
-    }
-  }
-  return lastIndex;
-}
-
 bool parseUnsignedLong(const String &value, unsigned long &result) {
   if (value.length() == 0) {
     return false;
@@ -205,36 +192,65 @@ bool parseRequestPayload(const String &payload, String &command, unsigned long &
     return false;
   }
 
-  String working = trimmed;
   intervalMs = 0;
   sendAlways = false;
+  command = trimmed;
 
-  // Extract optional send flag (0 or 1)
-  int separatorIndex = findLastSeparator(working);
-  if (separatorIndex != -1) {
-    String maybeFlag = working.substring(separatorIndex + 1);
-    maybeFlag.trim();
-    if (maybeFlag.equals("0") || maybeFlag.equals("1")) {
-      sendAlways = maybeFlag.equals("1");
-      working = working.substring(0, separatorIndex);
-      working.trim();
-    }
+  int metadataSeparator = trimmed.indexOf('|');
+  if (metadataSeparator == -1) {
+    return command.length() > 0;
   }
 
-  // Extract optional interval (digits only)
-  separatorIndex = findLastSeparator(working);
-  if (separatorIndex != -1) {
-    String maybeInterval = working.substring(separatorIndex + 1);
-    maybeInterval.trim();
+  String commandPart = trimmed.substring(0, metadataSeparator);
+  String metadataPart = trimmed.substring(metadataSeparator + 1);
+  commandPart.trim();
+  metadataPart.trim();
+
+  if (commandPart.length() == 0) {
+    return false;
+  }
+
+  String intervalToken = metadataPart;
+  String flagToken = "";
+
+  int secondSeparator = metadataPart.indexOf('|');
+  if (secondSeparator != -1) {
+    intervalToken = metadataPart.substring(0, secondSeparator);
+    flagToken = metadataPart.substring(secondSeparator + 1);
+  }
+
+  intervalToken.trim();
+  flagToken.trim();
+
+  bool metadataValid = true;
+
+  if (intervalToken.length() > 0) {
     unsigned long parsedInterval = 0;
-    if (parseUnsignedLong(maybeInterval, parsedInterval)) {
+    if (parseUnsignedLong(intervalToken, parsedInterval)) {
       intervalMs = parsedInterval;
-      working = working.substring(0, separatorIndex);
-      working.trim();
+    } else {
+      metadataValid = false;
     }
   }
 
-  command = working;
+  if (flagToken.length() > 0) {
+    if (flagToken.equals("0")) {
+      sendAlways = false;
+    } else if (flagToken.equals("1")) {
+      sendAlways = true;
+    } else {
+      metadataValid = false;
+    }
+  }
+
+  if (!metadataValid) {
+    command = trimmed;
+    intervalMs = 0;
+    sendAlways = false;
+    return command.length() > 0;
+  }
+
+  command = commandPart;
   return command.length() > 0;
 }
 
