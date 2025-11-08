@@ -74,10 +74,10 @@ String deviceMac = "";
 String mqttTopicBase = "";
 String wiredIP = "";
 String internetAddress = "";
-String lastCommandReceived = "None";
-String lastRequestSent = "None";
-String lastResponseReceived = "None";
-String runningTotal = "None";
+String lastCommandReceived = "Nenhum";
+String lastRequestSent = "Nenhum";
+String lastResponseReceived = "Nenhum";
+String runningTotal = "Nenhum";
 
 const char* const PREF_KEY_SERVER_IP = "srvIP";
 const char* const PREF_KEY_SERVER_PORT = "srvPort";
@@ -131,7 +131,7 @@ void setup() {
   loadPersistedServerDetails();
 
   // Setup Ethernet
-  Serial.println("Starting Wired Ethernet...");
+  Serial.println("Iniciando Ethernet cabeada...");
   WiFi.onEvent(onEvent);
   ETH.begin(ETH_PHY_TYPE, ETH_PHY_ADDR, ETH_PHY_MDC, ETH_PHY_MDIO, ETH_PHY_POWER, ETH_CLK_MODE);
   applyWiredConfigToDriver(true);
@@ -147,7 +147,7 @@ void setup() {
   Serial.println();
   
   if (eth_connected) {
-    Serial.println("Ethernet connected!");
+    Serial.println("Ethernet conectada!");
     macAddress = ETH.macAddress();
     deviceMac = macAddress;
     Serial.print("MAC: ");
@@ -157,7 +157,7 @@ void setup() {
     wiredIP = ETH.localIP().toString();
     publicIPRefreshRequested = true;
   } else {
-    Serial.println("Ethernet connection timeout!");
+    Serial.println("Tempo limite da conexão Ethernet!");
     // Continue anyway - might connect later
     macAddress = ETH.macAddress();
     deviceMac = macAddress;
@@ -175,7 +175,7 @@ void setup() {
   
   // Wait a bit more for Ethernet to stabilize
   if (!eth_connected) {
-    Serial.println("Waiting for Ethernet to stabilize...");
+    Serial.println("Aguardando a estabilização da Ethernet...");
     for (int i = 0; i < 20; i++) {
       delay(250);
       yield();
@@ -184,13 +184,13 @@ void setup() {
   }
   
   if (eth_connected) {
-    logMessage("WT32-ETH01 Network Scanner Ready");
-    logMessage("MAC Address: " + deviceMac);
-    logMessage("IP Address: " + ETH.localIP().toString());
+    logMessage("WT32-ETH01 Scanner de Rede pronto");
+    logMessage("Endereço MAC: " + deviceMac);
+    logMessage("Endereço IP: " + ETH.localIP().toString());
     publicIPRefreshRequested = true;
   } else {
-    Serial.println("Starting without Ethernet connection...");
-    logMessage("Waiting for Ethernet connection...");
+    Serial.println("Iniciando sem conexão Ethernet...");
+    logMessage("Aguardando conexão Ethernet...");
   }
 
   serverMutex = xSemaphoreCreateMutex();
@@ -212,7 +212,7 @@ void loop() {
   server.handleClient();
 
   if (eth_connected && !ethPreviouslyConnected) {
-    logMessage("Ethernet link restored - IP: " + ETH.localIP().toString());
+    logMessage("Link Ethernet restaurado - IP: " + ETH.localIP().toString());
     wiredIP = ETH.localIP().toString();
     publicIPRefreshRequested = true;
     mqttClient.disconnect();
@@ -224,7 +224,7 @@ void loop() {
     serverIP = "";
     serverPort = 0;
     internetAddress = "";
-    runningTotal = "None";
+    runningTotal = "Nenhum";
     xSemaphoreGive(serverMutex);
 
     currentScanIP = 1;
@@ -232,12 +232,12 @@ void loop() {
     connectMQTT();
     startNetworkScan();
   } else if (!eth_connected && ethPreviouslyConnected) {
-    logMessage("Ethernet link lost. Waiting for reconnection...");
+    logMessage("Link Ethernet perdido. Aguardando reconexão...");
     mqttClient.disconnect();
     if (client.connected()) {
       client.stop();
     }
-    runningTotal = "None";
+    runningTotal = "Nenhum";
     publicIPRefreshRequested = false;
     lastPublicIPCheck = 0;
   }
@@ -247,7 +247,7 @@ void loop() {
   if (!eth_connected) {
     unsigned long now = millis();
     if (now - lastEthStatusLog > 5000) {
-      addLog("Ethernet disconnected - retrying");
+      addLog("Ethernet desconectada - tentando novamente");
       lastEthStatusLog = now;
     }
     delay(100);
@@ -270,13 +270,13 @@ void loop() {
   if (serverFound) {
     if (millis() - lastCommandTime >= commandInterval) {
       if (!sendCommand()) {
-        logMessage("Lost connection to server. Restarting scan...");
+        logMessage("Conexão com o servidor perdida. Reiniciando varredura...");
         xSemaphoreTake(serverMutex, portMAX_DELAY);
         serverFound = false;
         serverIP = "";
         serverPort = 0;
         internetAddress = "";
-        runningTotal = "None";
+        runningTotal = "Nenhum";
         xSemaphoreGive(serverMutex);
         client.stop();
 
@@ -287,7 +287,7 @@ void loop() {
       lastCommandTime = millis();
     }
   } else if (scanComplete) {
-    logMessage("Scan complete. No server found. Restarting in 5 seconds...");
+    logMessage("Varredura concluída. Nenhum servidor encontrado. Reiniciando em 5 segundos...");
     delay(5000);
     currentScanIP = 1;
     scanComplete = false;

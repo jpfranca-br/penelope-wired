@@ -60,15 +60,15 @@ static void scanTask(void *parameter);
 void onEvent(arduino_event_id_t event) {
   switch (event) {
     case ARDUINO_EVENT_ETH_START:
-      Serial.println("ETH Started");
+      Serial.println("ETH iniciado");
       ETH.setHostname("sylvester-eth");
       break;
     case ARDUINO_EVENT_ETH_CONNECTED:
-      Serial.println("ETH Connected");
+      Serial.println("ETH conectado");
       break;
     case ARDUINO_EVENT_ETH_GOT_IP:
-      Serial.println("ETH Got IP");
-      Serial.print("IP Address: ");
+      Serial.println("ETH obteve IP");
+      Serial.print("Endereço IP: ");
       Serial.println(ETH.localIP());
       Serial.print("MAC: ");
       Serial.println(ETH.macAddress());
@@ -76,37 +76,37 @@ void onEvent(arduino_event_id_t event) {
       deviceMac = ETH.macAddress();
       wiredIP = ETH.localIP().toString();
       publicIPRefreshRequested = true;
-      addLog("Ethernet connected - IP: " + ETH.localIP().toString());
+      addLog("Ethernet conectada - IP: " + ETH.localIP().toString());
       break;
     case ARDUINO_EVENT_ETH_LOST_IP:
-      Serial.println("ETH Lost IP");
+      Serial.println("ETH perdeu IP");
       eth_connected = false;
       wiredIP = "";
       internetAddress = "";
-      runningTotal = "None";
+      runningTotal = "Nenhum";
       publicIPRefreshRequested = false;
       lastPublicIPCheck = 0;
-      addLog("Ethernet lost IP");
+      addLog("Ethernet perdeu IP");
       break;
     case ARDUINO_EVENT_ETH_DISCONNECTED:
-      Serial.println("ETH Disconnected");
+      Serial.println("ETH desconectado");
       eth_connected = false;
       wiredIP = "";
       internetAddress = "";
-      runningTotal = "None";
+      runningTotal = "Nenhum";
       publicIPRefreshRequested = false;
       lastPublicIPCheck = 0;
-      addLog("Ethernet disconnected");
+      addLog("Ethernet desconectada");
       break;
     case ARDUINO_EVENT_ETH_STOP:
-      Serial.println("ETH Stopped");
+      Serial.println("ETH parado");
       eth_connected = false;
       wiredIP = "";
       internetAddress = "";
-      runningTotal = "None";
+      runningTotal = "Nenhum";
       publicIPRefreshRequested = false;
       lastPublicIPCheck = 0;
-      addLog("Ethernet stopped");
+      addLog("Ethernet parada");
       break;
     default:
       break;
@@ -156,7 +156,7 @@ void loadPersistedServerDetails() {
   if (savedIP.length() > 0 && savedPort > 0 && savedPort <= 65535) {
     serverIP = savedIP;
     serverPort = savedPort;
-    addLog("Loaded saved server target: " + serverIP + ":" + String(serverPort));
+    addLog("Destino de servidor salvo carregado: " + serverIP + ":" + String(serverPort));
   } else {
     if (savedIP.length() > 0 || savedPort != 0) {
       preferences.putString(PREF_KEY_SERVER_IP, "");
@@ -170,7 +170,7 @@ void loadPersistedServerDetails() {
 void persistServerDetails(const String &ip, int port) {
   preferences.putString(PREF_KEY_SERVER_IP, ip);
   preferences.putInt(PREF_KEY_SERVER_PORT, port);
-  addLog("Saved server details: " + ip + ":" + String(port));
+  addLog("Detalhes do servidor salvos: " + ip + ":" + String(port));
 }
 
 void loadWiredConfig() {
@@ -189,7 +189,7 @@ void loadWiredConfig() {
     bool dnsValid = parseIPAddress(wiredStaticDnsStr, wiredStaticDns);
 
     if (!ipValid || !maskValid || !gatewayValid || !dnsValid) {
-      addLog("Stored Ethernet configuration invalid. Reverting to DHCP.");
+      addLog("Configuração Ethernet armazenada inválida. Revertendo para DHCP.");
       wiredDhcpEnabled = true;
       wiredStaticIP = IPAddress(0, 0, 0, 0);
       wiredStaticMask = IPAddress(255, 255, 255, 0);
@@ -218,31 +218,31 @@ void applyWiredConfigToDriver(bool logOutcome) {
     bool result = ETH.config(IPAddress(0, 0, 0, 0), IPAddress(0, 0, 0, 0), IPAddress(0, 0, 0, 0), IPAddress(0, 0, 0, 0));
     if (logOutcome) {
       if (result) {
-        addLog("Ethernet configured for DHCP");
+        addLog("Ethernet configurada para DHCP");
       } else {
-        addLog("Failed to configure Ethernet for DHCP");
+        addLog("Falha ao configurar Ethernet para DHCP");
       }
     }
   } else {
     bool result = ETH.config(wiredStaticIP, wiredStaticGateway, wiredStaticMask, wiredStaticDns);
     if (logOutcome) {
       if (result) {
-        addLog("Ethernet configured with static IP " + wiredStaticIPStr);
+        addLog("Ethernet configurada com IP estático " + wiredStaticIPStr);
       } else {
-        addLog("Failed to apply static Ethernet configuration");
+        addLog("Falha ao aplicar configuração Ethernet estática");
       }
     }
   }
 }
 
 void reconnectEthernetWithConfig() {
-  addLog("Reinitializing Ethernet interface to apply configuration...");
+  addLog("Reinicializando a interface Ethernet para aplicar a configuração...");
 
   bool wasConnected = eth_connected;
   eth_connected = false;
   wiredIP = "";
   internetAddress = "";
-  runningTotal = "None";
+  runningTotal = "Nenhum";
   publicIPRefreshRequested = false;
   lastPublicIPCheck = 0;
 
@@ -267,10 +267,10 @@ void reconnectEthernetWithConfig() {
 
   if (eth_connected) {
     wiredIP = ETH.localIP().toString();
-    addLog("Ethernet ready - IP: " + wiredIP);
+    addLog("Ethernet pronta - IP: " + wiredIP);
     publicIPRefreshRequested = true;
   } else {
-    addLog("Ethernet reconfiguration timed out");
+    addLog("A reconfiguração da Ethernet expirou");
   }
 }
 
@@ -301,19 +301,19 @@ bool setWiredConfiguration(bool useDhcp, const String &ip, const String &mask, c
     IPAddress parsedDns;
 
     if (!parseIPAddress(ipTrim, parsedIP)) {
-      errorMessage = "Invalid IP address";
+      errorMessage = "Endereço IP inválido";
       return false;
     }
     if (!parseIPAddress(maskTrim, parsedMask)) {
-      errorMessage = "Invalid subnet mask";
+      errorMessage = "Máscara de sub-rede inválida";
       return false;
     }
     if (!parseIPAddress(gatewayTrim, parsedGateway)) {
-      errorMessage = "Invalid gateway address";
+      errorMessage = "Endereço de gateway inválido";
       return false;
     }
     if (!parseIPAddress(dnsTrim, parsedDns)) {
-      errorMessage = "Invalid DNS address";
+      errorMessage = "Endereço de DNS inválido";
       return false;
     }
 
@@ -329,9 +329,9 @@ bool setWiredConfiguration(bool useDhcp, const String &ip, const String &mask, c
   }
 
   if (wiredDhcpEnabled) {
-    addLog("Applying DHCP configuration for Ethernet");
+    addLog("Aplicando configuração DHCP para Ethernet");
   } else {
-    addLog("Applying static Ethernet configuration: " + wiredStaticIPStr + " / " + wiredStaticMaskStr);
+    addLog("Aplicando configuração Ethernet estática: " + wiredStaticIPStr + " / " + wiredStaticMaskStr);
   }
 
   preferences.putUChar("ethMode", wiredDhcpEnabled ? 0 : 1);
@@ -348,11 +348,11 @@ void loadWifiSettings() {
   String storedPassword = preferences.getString("apPassword", DEFAULT_AP_PASSWORD);
   if (storedPassword.length() >= 8 && storedPassword.length() <= 63) {
     ap_password = storedPassword;
-    addLog("Loaded WiFi password from memory");
+    addLog("Senha WiFi carregada da memória");
   } else {
     ap_password = DEFAULT_AP_PASSWORD;
     if (storedPassword.length() > 0 && storedPassword != DEFAULT_AP_PASSWORD) {
-      addLog("Stored WiFi password invalid. Reverting to default");
+      addLog("Senha WiFi armazenada inválida. Revertendo para o padrão");
     }
   }
 }
@@ -369,16 +369,16 @@ void setupAccessPoint() {
   server.on("/config", HTTP_GET, handleConfigPage);
   server.on("/config", HTTP_POST, handleConfigSubmit);
   server.onNotFound([]() {
-    server.send(404, "text/plain", "Not found");
+    server.send(404, "text/plain", "Não encontrado");
   });
   server.begin();
 
-  Serial.print("Access point started: ");
+  Serial.print("Ponto de acesso iniciado: ");
   Serial.println(ap_ssid);
-  Serial.print("AP IP address: ");
+  Serial.print("IP do AP: ");
   Serial.println(apIP);
 
-  addLog("WiFi AP ready: " + ap_ssid + " @ " + apIP.toString());
+  addLog("WiFi AP pronto: " + ap_ssid + " @ " + apIP.toString());
 }
 
 void refreshPublicIP() {
@@ -393,7 +393,7 @@ void refreshPublicIP() {
   HTTPClient http;
   http.setTimeout(4000);
   if (!http.begin("http://api.ipify.org")) {
-    addLog("Failed to start public IP request");
+    addLog("Falha ao iniciar solicitação de IP público");
     return;
   }
 
@@ -404,10 +404,10 @@ void refreshPublicIP() {
     if (ip.length() > 0) {
       internetAddress = ip;
     } else {
-      addLog("Received empty public IP response");
+      addLog("Resposta de IP público vazia recebida");
     }
   } else {
-    addLog("Public IP request failed: HTTP " + String(httpCode));
+    addLog("Solicitação de IP público falhou: HTTP " + String(httpCode));
   }
 
   http.end();
@@ -415,13 +415,13 @@ void refreshPublicIP() {
 
 void startNetworkScan() {
   if (!eth_connected) {
-    addLog("Cannot start scan - Ethernet not connected");
+    addLog("Não é possível iniciar a varredura - Ethernet não conectada");
     return;
   }
 
   IPAddress localIP = ETH.localIP();
   if (localIP == IPAddress(0, 0, 0, 0)) {
-    addLog("Cannot start scan - Ethernet IP not assigned");
+    addLog("Não é possível iniciar a varredura - IP da Ethernet não atribuído");
     return;
   }
 
@@ -438,9 +438,9 @@ void startNetworkScan() {
   currentScanIP = 1;
   scanComplete = false;
 
-  addLog("Starting multi-threaded network scan...");
-  addLog("Scan range: " + scanRange);
-  addLog("Using " + String(NUM_SCAN_TASKS) + " parallel threads");
+  addLog("Iniciando varredura de rede multithread...");
+  addLog("Intervalo de varredura: " + scanRange);
+  addLog("Utilizando " + String(NUM_SCAN_TASKS) + " threads paralelas");
 
   for (int i = 0; i < NUM_SCAN_TASKS; i++) {
     char taskName[20];
@@ -500,8 +500,8 @@ static void scanTask(void *parameter) {
         if (p < numPorts - 1) portList += ", ";
       }
 
-      String progress = "Scanning " + startIP.toString() + " to " + endIP.toString() +
-                       " - Ports " + portList;
+      String progress = "Varrendo " + startIP.toString() + " até " + endIP.toString() +
+                       " - Portas " + portList;
       addLog(progress);
     }
     xSemaphoreGive(scanMutex);
@@ -518,11 +518,11 @@ static void scanTask(void *parameter) {
     for (int p = 0; p < numPorts; p++) {
       testClient.setTimeout(300);
       if (testClient.connect(targetIP, ports[p], 300)) {
-        Serial.print("\n[Found] ");
+        Serial.print("\n[Encontrado] ");
         Serial.print(targetIP);
         Serial.print(":");
         Serial.print(ports[p]);
-        Serial.print(" OPEN - Testing... ");
+        Serial.print(" ABERTA - Testando... ");
 
         testClient.println("(&V)");
         testClient.flush();
@@ -534,7 +534,7 @@ static void scanTask(void *parameter) {
 
         if (testClient.available()) {
           String response = testClient.readStringUntil('\n');
-          Serial.print("RESPONSE: ");
+          Serial.print("RESPOSTA: ");
           Serial.println(response);
 
           xSemaphoreTake(serverMutex, portMAX_DELAY);
@@ -546,10 +546,10 @@ static void scanTask(void *parameter) {
             client.connect(targetIP, ports[p]);
             lastCommandTime = millis();
 
-            addLog("*** SERVER FOUND! ***");
-            addLog("Server: " + serverIP + ":" + String(serverPort));
+            addLog("*** SERVIDOR ENCONTRADO! ***");
+            addLog("Servidor: " + serverIP + ":" + String(serverPort));
             persistServerDetails(serverIP, serverPort);
-            addLog("Stopping all scan threads...");
+            addLog("Parando todas as threads de varredura...");
           }
           xSemaphoreGive(serverMutex);
 
@@ -557,7 +557,7 @@ static void scanTask(void *parameter) {
           vTaskDelete(NULL);
           return;
         } else {
-          Serial.println("no response");
+          Serial.println("sem resposta");
         }
 
         testClient.stop();
@@ -578,13 +578,13 @@ void loadPorts() {
     for (int i = 0; i < numPorts; i++) {
       ports[i] = defaultPorts[i];
     }
-    Serial.println("Using default ports: 2001, 1771, 854");
+    Serial.println("Utilizando portas padrão: 2001, 1771, 854");
   } else {
     for (int i = 0; i < numPorts; i++) {
       String key = "port" + String(i);
       ports[i] = preferences.getInt(key.c_str(), defaultPorts[i % defaultNumPorts]);
     }
-    Serial.print("Loaded ports from memory: ");
+    Serial.print("Portas carregadas da memória: ");
     for (int i = 0; i < numPorts; i++) {
       Serial.print(ports[i]);
       if (i < numPorts - 1) Serial.print(", ");

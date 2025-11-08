@@ -11,17 +11,17 @@ bool ensureServerConnection() {
   }
 
   for (int attempt = 1; attempt <= MAX_RECONNECT_ATTEMPTS; attempt++) {
-    addLog("Reconnecting to server (attempt " + String(attempt) + "/" + String(MAX_RECONNECT_ATTEMPTS) + ")...");
+    addLog("Reconectando ao servidor (tentativa " + String(attempt) + "/" + String(MAX_RECONNECT_ATTEMPTS) + ")...");
     if (client.connect(serverIP.c_str(), serverPort)) {
-      addLog("Reconnection successful");
+      addLog("Reconexão bem-sucedida");
       return true;
     }
 
-    addLog("Reconnection attempt failed");
+    addLog("Tentativa de reconexão falhou");
     delay(RETRY_DELAY_MS);
   }
 
-  addLog("Unable to reconnect to server after multiple attempts");
+  addLog("Não foi possível reconectar ao servidor após várias tentativas");
   return false;
 }
 
@@ -31,7 +31,7 @@ bool sendCommand() {
       return false;
     }
 
-    String cmdMsg = "Sending command to " + serverIP + ":" + String(serverPort);
+    String cmdMsg = "Enviando comando para " + serverIP + ":" + String(serverPort);
     if (attempt > 1) {
       cmdMsg += " (retry " + String(attempt) + "/" + String(MAX_COMMAND_ATTEMPTS) + ")";
     }
@@ -49,7 +49,7 @@ bool sendCommand() {
 
     if (client.available()) {
       String response = client.readStringUntil('\n');
-      Serial.print("Response: ");
+      Serial.print("Resposta: ");
       Serial.println(response);
 
       runningTotal = response;
@@ -62,13 +62,13 @@ bool sendCommand() {
       return true;
     }
 
-    addLog("No response from server (attempt " + String(attempt) + "/" + String(MAX_COMMAND_ATTEMPTS) + ")");
-    runningTotal = "No response from server";
+    addLog("Nenhuma resposta do servidor (tentativa " + String(attempt) + "/" + String(MAX_COMMAND_ATTEMPTS) + ")");
+    runningTotal = "Nenhuma resposta do servidor";
     client.stop();
     delay(RETRY_DELAY_MS);
   }
 
-  addLog("Server not responding after multiple retries");
-  runningTotal = "Server not responding";
+  addLog("Servidor não responde após várias tentativas");
+  runningTotal = "Servidor não está respondendo";
   return false;
 }
