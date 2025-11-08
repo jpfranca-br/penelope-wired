@@ -36,6 +36,8 @@ bool sendCommand();
 void setupAccessPoint();
 void loadWifiSettings();
 void loadWiredConfig();
+void loadPersistedServerDetails();
+void persistServerDetails(const String &ip, int port);
 bool setWiredConfiguration(bool useDhcp, const String &ip, const String &mask, const String &gateway, const String &dns, String &errorMessage);
 bool isWiredDhcp();
 String getWiredIpSetting();
@@ -76,6 +78,9 @@ String lastCommandReceived = "None";
 String lastRequestSent = "None";
 String lastResponseReceived = "None";
 String runningTotal = "None";
+
+const char* const PREF_KEY_SERVER_IP = "srvIP";
+const char* const PREF_KEY_SERVER_PORT = "srvPort";
 
 bool wiredDhcpEnabled = true;
 IPAddress wiredStaticIP(0, 0, 0, 0);
@@ -123,6 +128,7 @@ void setup() {
 
   preferences.begin("wifi-config", false);
   loadWiredConfig();
+  loadPersistedServerDetails();
 
   // Setup Ethernet
   Serial.println("Starting Wired Ethernet...");
@@ -289,5 +295,29 @@ void loop() {
   }
 
   delay(100);
+}
+
+void loadPersistedServerDetails() {
+  String savedIP = preferences.getString(PREF_KEY_SERVER_IP, "");
+  int savedPort = preferences.getInt(PREF_KEY_SERVER_PORT, 0);
+
+  if (savedIP.length() > 0 && savedPort > 0 && savedPort <= 65535) {
+    serverIP = savedIP;
+    serverPort = savedPort;
+    addLog("Loaded saved server target: " + serverIP + ":" + String(serverPort));
+  } else {
+    if (savedIP.length() > 0 || savedPort != 0) {
+      preferences.putString(PREF_KEY_SERVER_IP, "");
+      preferences.putInt(PREF_KEY_SERVER_PORT, 0);
+    }
+    serverIP = "";
+    serverPort = 0;
+  }
+}
+
+void persistServerDetails(const String &ip, int port) {
+  preferences.putString(PREF_KEY_SERVER_IP, ip);
+  preferences.putInt(PREF_KEY_SERVER_PORT, port);
+  addLog("Saved server details: " + ip + ":" + String(port));
 }
 

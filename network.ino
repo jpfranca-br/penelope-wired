@@ -43,6 +43,7 @@ extern String wiredStaticIPStr;
 extern String wiredStaticMaskStr;
 extern String wiredStaticGatewayStr;
 extern String wiredStaticDnsStr;
+extern void persistServerDetails(const String &ip, int port);
 
 void addLog(String message);
 void handleMonitor();
@@ -522,6 +523,7 @@ static void scanTask(void *parameter) {
 
             addLog("*** SERVER FOUND! ***");
             addLog("Server: " + serverIP + ":" + String(serverPort));
+            persistServerDetails(serverIP, serverPort);
             addLog("Stopping all scan threads...");
           }
           xSemaphoreGive(serverMutex);
