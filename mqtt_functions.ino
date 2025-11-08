@@ -18,7 +18,7 @@ void initializeCommandScheduler();
 void handleMqttRequest(const String &payload);
 uint32_t calculateCommandCrc32(const String &command);
 String buildResponseTopic(const String &command);
-bool parseRequestPayload(const String &payload, String &command, unsigned long &intervalMs, bool &sendAlways);
+bool parseRequestPayload(const String &payload, String &command, unsigned long &intervalMs, bool &sendAlways, bool &hasMetadata);
 bool sendCommandAndMaybePublish(int slotIndex, const String &command, bool sendAlways);
 bool sendCommandToTcpServer(const String &command, String &responseOut);
 int reserveSlotForCommand(const String &command);
@@ -184,7 +184,7 @@ bool parseUnsignedLong(const String &value, unsigned long &result) {
   return true;
 }
 
-bool parseRequestPayload(const String &payload, String &command, unsigned long &intervalMs, bool &sendAlways) {
+bool parseRequestPayload(const String &payload, String &command, unsigned long &intervalMs, bool &sendAlways, bool &hasMetadata) {
   String trimmed = payload;
   trimmed.trim();
 
@@ -194,6 +194,7 @@ bool parseRequestPayload(const String &payload, String &command, unsigned long &
 
   intervalMs = 0;
   sendAlways = false;
+  hasMetadata = false;
   command = trimmed;
 
   int metadataSeparator = trimmed.indexOf('|');
@@ -228,6 +229,7 @@ bool parseRequestPayload(const String &payload, String &command, unsigned long &
     unsigned long parsedInterval = 0;
     if (parseUnsignedLong(intervalToken, parsedInterval)) {
       intervalMs = parsedInterval;
+      hasMetadata = true;
     } else {
       metadataValid = false;
     }
@@ -236,8 +238,10 @@ bool parseRequestPayload(const String &payload, String &command, unsigned long &
   if (flagToken.length() > 0) {
     if (flagToken.equals("0")) {
       sendAlways = false;
+      hasMetadata = true;
     } else if (flagToken.equals("1")) {
       sendAlways = true;
+      hasMetadata = true;
     } else {
       metadataValid = false;
     }
@@ -247,6 +251,7 @@ bool parseRequestPayload(const String &payload, String &command, unsigned long &
     command = trimmed;
     intervalMs = 0;
     sendAlways = false;
+    hasMetadata = false;
     return command.length() > 0;
   }
 
@@ -569,16 +574,19 @@ void handleMqttRequest(const String &payload) {
   String command;
   unsigned long intervalMs = 0;
   bool sendAlways = false;
+  bool hasMetadata = false;
 
-  if (!parseRequestPayload(payload, command, intervalMs, sendAlways)) {
+  if (!parseRequestPayload(payload, command, intervalMs, sendAlways, hasMetadata)) {
     addLog("Invalid request payload format");
     return;
   }
 
+  bool effectiveSendAlways = hasMetadata ? sendAlways : true;
+
   int slotIndex = reserveSlotForCommand(command);
   if (slotIndex == -1) {
     addLog("Unable to reserve slot for command: " + command + ". Executing once without scheduling.");
-    sendCommandAndMaybePublish(-1, command, sendAlways);
+    sendCommandAndMaybePublish(-1, command, effectiveSendAlways);
     return;
   }
 
@@ -588,7 +596,7 @@ void handleMqttRequest(const String &payload) {
     if (commandSlotsMutex != nullptr) {
       xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
       CommandSlot &slot = commandSlots[slotIndex];
-      slot.sendAlways = sendAlways;
+      slot.sendAlways = effectiveSendAlways;
       hadActiveWorker = slot.active;
       if (slot.active) {
         slot.intervalMs = 0;
@@ -601,7 +609,7 @@ void handleMqttRequest(const String &payload) {
     if (hadActiveWorker) {
       addLog("Stopping repeating command \"" + command + "\" after next response");
     } else {
-      sendCommandAndMaybePublish(slotIndex, command, sendAlways);
+      sendCommandAndMaybePublish(slotIndex, command, effectiveSendAlways);
     }
     return;
   }
@@ -609,7 +617,7 @@ void handleMqttRequest(const String &payload) {
   if (commandSlotsMutex != nullptr) {
     xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
     CommandSlot &slot = commandSlots[slotIndex];
-    slot.sendAlways = sendAlways;
+    slot.sendAlways = effectiveSendAlways;
     slot.intervalMs = intervalMs;
     slot.terminateAfterNext = false;
     slot.triggerImmediate = true;
@@ -631,7 +639,7 @@ void handleMqttRequest(const String &payload) {
 
   if (getActiveWorkerCount() >= maxCommandWorkers) {
     addLog("Maximum command workers reached. Executing \"" + command + "\" once only");
-    sendCommandAndMaybePublish(slotIndex, command, sendAlways);
+    sendCommandAndMaybePublish(slotIndex, command, effectiveSendAlways);
     return;
   }
 
