@@ -43,7 +43,8 @@ extern String wiredStaticIPStr;
 extern String wiredStaticMaskStr;
 extern String wiredStaticGatewayStr;
 extern String wiredStaticDnsStr;
-extern void persistServerDetails(const String &ip, int port);
+extern const char* const PREF_KEY_SERVER_IP;
+extern const char* const PREF_KEY_SERVER_PORT;
 
 void addLog(String message);
 void handleMonitor();
@@ -146,6 +147,30 @@ String getWiredGatewaySetting() {
 
 String getWiredDnsSetting() {
   return wiredStaticDnsStr;
+}
+
+void loadPersistedServerDetails() {
+  String savedIP = preferences.getString(PREF_KEY_SERVER_IP, "");
+  int savedPort = preferences.getInt(PREF_KEY_SERVER_PORT, 0);
+
+  if (savedIP.length() > 0 && savedPort > 0 && savedPort <= 65535) {
+    serverIP = savedIP;
+    serverPort = savedPort;
+    addLog("Loaded saved server target: " + serverIP + ":" + String(serverPort));
+  } else {
+    if (savedIP.length() > 0 || savedPort != 0) {
+      preferences.putString(PREF_KEY_SERVER_IP, "");
+      preferences.putInt(PREF_KEY_SERVER_PORT, 0);
+    }
+    serverIP = "";
+    serverPort = 0;
+  }
+}
+
+void persistServerDetails(const String &ip, int port) {
+  preferences.putString(PREF_KEY_SERVER_IP, ip);
+  preferences.putInt(PREF_KEY_SERVER_PORT, port);
+  addLog("Saved server details: " + ip + ":" + String(port));
 }
 
 void loadWiredConfig() {
