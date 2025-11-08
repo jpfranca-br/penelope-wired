@@ -18,7 +18,6 @@ extern unsigned long lastPublicIPCheck;
 extern unsigned long lastCommandTime;
 extern String wiredIP;
 extern String internetAddress;
-extern String runningTotal;
 extern String serverIP;
 extern int serverPort;
 extern String deviceMac;
@@ -85,7 +84,6 @@ void onEvent(arduino_event_id_t event) {
       eth_connected = false;
       wiredIP = "";
       internetAddress = "";
-      runningTotal = "Nenhum";
       publicIPRefreshRequested = false;
       lastPublicIPCheck = 0;
       addLog("Ethernet perdeu IP");
@@ -95,7 +93,6 @@ void onEvent(arduino_event_id_t event) {
       eth_connected = false;
       wiredIP = "";
       internetAddress = "";
-      runningTotal = "Nenhum";
       publicIPRefreshRequested = false;
       lastPublicIPCheck = 0;
       addLog("Ethernet desconectada");
@@ -105,7 +102,6 @@ void onEvent(arduino_event_id_t event) {
       eth_connected = false;
       wiredIP = "";
       internetAddress = "";
-      runningTotal = "Nenhum";
       publicIPRefreshRequested = false;
       lastPublicIPCheck = 0;
       addLog("Ethernet parada");
@@ -244,7 +240,6 @@ void reconnectEthernetWithConfig() {
   eth_connected = false;
   wiredIP = "";
   internetAddress = "";
-  runningTotal = "Nenhum";
   publicIPRefreshRequested = false;
   lastPublicIPCheck = 0;
 

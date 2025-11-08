@@ -31,8 +31,8 @@ void handleConfigPage();
 void handleConfigSubmit();
 void connectMQTT();
 void initializeCommandScheduler();
+void loadPersistedCommandSlots();
 void startNetworkScan();
-bool sendCommand();
 void setupAccessPoint();
 void loadWifiSettings();
 void loadWiredConfig();
@@ -80,7 +80,6 @@ String internetAddress = "";
 String lastCommandReceived = "Nenhum";
 String lastRequestSent = "Nenhum";
 String lastResponseReceived = "Nenhum";
-String runningTotal = "Nenhum";
 
 const char* const PREF_KEY_SERVER_IP = "srvIP";
 const char* const PREF_KEY_SERVER_PORT = "srvPort";
@@ -116,9 +115,6 @@ bool ethPreviouslyConnected = false;
 unsigned long lastEthStatusLog = 0;
 
 // Timing
-unsigned long lastCommandTime = 0;
-const unsigned long commandInterval = 5000;
-
 // Scanning
 volatile int currentScanIP = 1;
 volatile bool scanComplete = false;
@@ -198,6 +194,7 @@ void setup() {
 
   serverMutex = xSemaphoreCreateMutex();
   initializeCommandScheduler();
+  loadPersistedCommandSlots();
   scanMutex = xSemaphoreCreateMutex();
 
   mqttClient.setServer(mqtt_broker, mqtt_port);
@@ -227,7 +224,6 @@ void loop() {
     serverIP = "";
     serverPort = 0;
     internetAddress = "";
-    runningTotal = "Nenhum";
     xSemaphoreGive(serverMutex);
 
     currentScanIP = 1;
@@ -240,7 +236,6 @@ void loop() {
     if (client.connected()) {
       client.stop();
     }
-    runningTotal = "Nenhum";
     publicIPRefreshRequested = false;
     lastPublicIPCheck = 0;
   }
@@ -270,26 +265,7 @@ void loop() {
     }
   }
 
-  if (serverFound) {
-    if (millis() - lastCommandTime >= commandInterval) {
-      if (!sendCommand()) {
-        logMessage("Conexão com o servidor perdida. Reiniciando varredura...");
-        xSemaphoreTake(serverMutex, portMAX_DELAY);
-        serverFound = false;
-        serverIP = "";
-        serverPort = 0;
-        internetAddress = "";
-        runningTotal = "Nenhum";
-        xSemaphoreGive(serverMutex);
-        client.stop();
-
-        currentScanIP = 1;
-        scanComplete = false;
-        startNetworkScan();
-      }
-      lastCommandTime = millis();
-    }
-  } else if (scanComplete) {
+  if (!serverFound && scanComplete) {
     logMessage("Varredura concluída. Nenhum servidor encontrado. Reiniciando em 5 segundos...");
     delay(5000);
     currentScanIP = 1;
