@@ -18,7 +18,7 @@ void handleMonitor() {
   String html = "<!DOCTYPE html><html><head>";
   html += "<meta charset='UTF-8'>";
   html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
-  html += "<title>Sylvester Monitor</title>";
+  html += "<title>Monitor Sylvester</title>";
   html += "<link rel='stylesheet' href='/style.css'>";
   html += "<script>";
   html += "let autoScroll = true;";
@@ -29,20 +29,20 @@ void handleMonitor() {
   html += "    logDiv.innerHTML = data.logs.map(l => '<div class=\"log-line\">' + escapeHtml(l) + '</div>').join('');";
   html += "    if (autoScroll && wasAtBottom) logDiv.scrollTop = logDiv.scrollHeight;";
   html += "    const macEl = document.getElementById('mac');";
-  html += "    if (macEl) macEl.textContent = 'MAC: ' + (data.mac || 'N/A');";
+  html += "    if (macEl) macEl.textContent = 'MAC: ' + (data.mac || 'N/D');";
   html += "    const wiredEl = document.getElementById('wired-ip');";
-  html += "    if (wiredEl) wiredEl.textContent = 'Wired IP: ' + (data.wired_ip || 'N/A');";
+  html += "    if (wiredEl) wiredEl.textContent = 'IP cabeado: ' + (data.wired_ip || 'N/D');";
   html += "    const internetEl = document.getElementById('internet-ip');";
-  html += "    if (internetEl) internetEl.textContent = 'Internet: ' + (data.internet_ip || 'N/A');";
+  html += "    if (internetEl) internetEl.textContent = 'Internet: ' + (data.internet_ip || 'N/D');";
   html += "    const commandEl = document.getElementById('last-command');";
-  html += "    if (commandEl) commandEl.textContent = data.last_command || 'None';";
+  html += "    if (commandEl) commandEl.textContent = data.last_command || 'Nenhum';";
   html += "    const requestEl = document.getElementById('last-request');";
-  html += "    if (requestEl) requestEl.textContent = data.last_request || 'None';";
+  html += "    if (requestEl) requestEl.textContent = data.last_request || 'Nenhum';";
   html += "    const responseEl = document.getElementById('last-response');";
-  html += "    if (responseEl) responseEl.textContent = data.last_response || 'None';";
+  html += "    if (responseEl) responseEl.textContent = data.last_response || 'Nenhum';";
   html += "    const runningEl = document.getElementById('running-total');";
-  html += "    if (runningEl) runningEl.textContent = data.running_total || 'None';";
-  html += "    document.getElementById('status').innerText = data.eth ? 'Connected' : 'Disconnected';";
+  html += "    if (runningEl) runningEl.textContent = data.running_total || 'Nenhum';";
+  html += "    document.getElementById('status').innerText = data.eth ? 'Conectado' : 'Desconectado';";
   html += "    document.getElementById('status').className = data.eth ? 'status connected' : 'status disconnected';";
   html += "  });";
   html += "}";
@@ -56,25 +56,25 @@ void handleMonitor() {
   html += "</script></head><body>";
   html += "<div class='container'>";
   html += "<div class='header'>";
-  html += "<h1>🔍 Sylvester Monitor</h1>";
+  html += "<h1>🔍 Monitor Sylvester</h1>";
   html += "<div class='info'>";
   html += "<span id='mac'>MAC: --</span>";
-  html += "<span id='wired-ip'>Wired IP: --</span>";
+  html += "<span id='wired-ip'>IP cabeado: --</span>";
   html += "<span id='internet-ip'>Internet: --</span>";
-  html += "<span id='status' class='status'>Checking...</span>";
+  html += "<span id='status' class='status'>Verificando...</span>";
   html += "</div>";
-  html += "<a class='config-button' href='/config'>Config</a>";
+  html += "<a class='config-button' href='/config'>Configurar</a>";
   html += "</div>";
   html += "<div class='summary'>";
-  html += "<div class='summary-card full'><h2>Last Command</h2><div class='summary-value' id='last-command'>None</div></div>";
+  html += "<div class='summary-card full'><h2>Último comando</h2><div class='summary-value' id='last-command'>Nenhum</div></div>";
   html += "</div>";
   html += "<div class='activity-grid'>";
-  html += "<div class='detail-card'><h2>Last Request</h2><div class='detail-value' id='last-request'>None</div></div>";
-  html += "<div class='detail-card'><h2>Last Response</h2><div class='detail-value' id='last-response'>None</div></div>";
-  html += "<div class='detail-card'><h2>Running Total</h2><div class='detail-value' id='running-total'>None</div></div>";
+  html += "<div class='detail-card'><h2>Última requisição</h2><div class='detail-value' id='last-request'>Nenhum</div></div>";
+  html += "<div class='detail-card'><h2>Última resposta</h2><div class='detail-value' id='last-response'>Nenhum</div></div>";
+  html += "<div class='detail-card'><h2>Total em execução</h2><div class='detail-value' id='running-total'>Nenhum</div></div>";
   html += "</div>";
   html += "<div id='logs' class='log-container'></div>";
-  html += "<div class='footer'>Auto-updating every second | Scroll locked to bottom</div>";
+  html += "<div class='footer'>Atualização automática a cada segundo | Rolagem travada no fim</div>";
   html += "</div></body></html>";
 
   server.send(200, "text/html", html);
@@ -179,12 +179,12 @@ void sendConfigPage(const String &message, bool success) {
   String html = "<!DOCTYPE html><html><head>";
   html += "<meta charset='UTF-8'>";
   html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
-  html += "<title>Ethernet Configuration</title>";
+  html += "<title>Configuração de Ethernet</title>";
   html += "<link rel='stylesheet' href='/style.css'>";
   html += "</head><body>";
   html += "<div class='config-container'>";
-  html += "<h1>Ethernet Configuration</h1>";
-  html += "<p class='config-description'>Choose DHCP or define a fixed IP address for the wired interface.</p>";
+  html += "<h1>Configuração de Ethernet</h1>";
+  html += "<p class='config-description'>Escolha DHCP ou defina um endereço IP fixo para a interface cabeada.</p>";
 
   if (message.length() > 0) {
     html += "<div class='config-message ";
@@ -200,14 +200,14 @@ void sendConfigPage(const String &message, bool success) {
   html += ">DHCP</label>";
   html += "<label><input type='radio' id='mode-fixed' name='mode' value='fixed'";
   if (!useDhcp) html += " checked";
-  html += ">Fixed</label>";
+  html += ">Fixo</label>";
   html += "</div>";
 
   html += "<div id='static-fields' class='static-fields'>";
-  html += "<label>IP Address<input type='text' name='ip' placeholder='" + ipPlaceholder + "' value='";
+  html += "<label>Endereço IP<input type='text' name='ip' placeholder='" + ipPlaceholder + "' value='";
   html += useDhcp ? "" : ipSetting;
   html += "'></label>";
-  html += "<label>Subnet Mask<input type='text' name='mask' placeholder='" + maskPlaceholder + "' value='";
+  html += "<label>Máscara de sub-rede<input type='text' name='mask' placeholder='" + maskPlaceholder + "' value='";
   html += useDhcp ? "" : maskSetting;
   html += "'></label>";
   html += "<label>Gateway<input type='text' name='gateway' placeholder='" + gatewayPlaceholder + "' value='";
@@ -219,8 +219,8 @@ void sendConfigPage(const String &message, bool success) {
   html += "</div>";
 
   html += "<div class='config-actions'>";
-  html += "<button type='submit'>Apply</button>";
-  html += "<a class='back-button' href='/'>Back</a>";
+  html += "<button type='submit'>Aplicar</button>";
+  html += "<a class='back-button' href='/'>Voltar</a>";
   html += "</div>";
   html += "</form>";
   html += "</div>";
@@ -246,7 +246,7 @@ void handleConfigPage() {
 
 void handleConfigSubmit() {
   if (!server.hasArg("mode")) {
-    sendConfigPage("Configuration mode is required", false);
+    sendConfigPage("Modo de configuração é obrigatório", false);
     return;
   }
 
@@ -260,7 +260,7 @@ void handleConfigSubmit() {
   } else if (mode == "fixed") {
     useDhcp = false;
   } else {
-    sendConfigPage("Unknown configuration mode", false);
+    sendConfigPage("Modo de configuração desconhecido", false);
     return;
   }
 
@@ -271,8 +271,8 @@ void handleConfigSubmit() {
 
   String errorMessage;
   if (setWiredConfiguration(useDhcp, ip, mask, gateway, dns, errorMessage)) {
-    sendConfigPage("Wired Ethernet configuration updated.", true);
+    sendConfigPage("Configuração da Ethernet cabeada atualizada.", true);
   } else {
-    sendConfigPage("Configuration error: " + errorMessage, false);
+    sendConfigPage("Erro de configuração: " + errorMessage, false);
   }
 }

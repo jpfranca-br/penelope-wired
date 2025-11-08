@@ -65,14 +65,14 @@ extern IPAddress wiredStaticDns;
 void connectMQTT() {
   int attempts = 0;
   while (!mqttClient.connected() && attempts < 5) {
-    Serial.print("Connecting to MQTT broker...");
+    Serial.print("Conectando ao broker MQTT...");
     yield(); // Feed watchdog
     
     String clientId = "ESP32-" + macAddress;
     
     if (strlen(mqtt_user) > 0) {
       if (mqttClient.connect(clientId.c_str(), mqtt_user, mqtt_password)) {
-        Serial.println(" connected!");
+        Serial.println(" conectado!");
         
         // Subscribe to request and command topics
         String requestTopic = mqttTopicBase + "request";
@@ -81,14 +81,14 @@ void connectMQTT() {
         mqttClient.subscribe(commandTopic.c_str());
 
         wiredIP = ETH.localIP().toString();
-        addLog("MQTT connected - Device IP: " + ETH.localIP().toString());
-        addLog("Subscribed to: " + requestTopic);
-        addLog("Subscribed to: " + commandTopic);
+        addLog("MQTT conectado - IP do dispositivo: " + ETH.localIP().toString());
+        addLog("Inscrito em: " + requestTopic);
+        addLog("Inscrito em: " + commandTopic);
         return;
       }
     } else {
       if (mqttClient.connect(clientId.c_str())) {
-        Serial.println(" connected!");
+        Serial.println(" conectado!");
         
         // Subscribe to request and command topics
         String requestTopic = mqttTopicBase + "request";
@@ -97,14 +97,14 @@ void connectMQTT() {
         mqttClient.subscribe(commandTopic.c_str());
 
         wiredIP = ETH.localIP().toString();
-        addLog("MQTT connected - Device IP: " + ETH.localIP().toString());
-        addLog("Subscribed to: " + requestTopic);
-        addLog("Subscribed to: " + commandTopic);
+        addLog("MQTT conectado - IP do dispositivo: " + ETH.localIP().toString());
+        addLog("Inscrito em: " + requestTopic);
+        addLog("Inscrito em: " + commandTopic);
         return;
       }
     }
     
-    Serial.print(" failed, rc=");
+    Serial.print(" falhou, rc=");
     Serial.println(mqttClient.state());
     attempts++;
     
@@ -116,7 +116,7 @@ void connectMQTT() {
   }
   
   if (!mqttClient.connected()) {
-    Serial.println("MQTT connection failed after 5 attempts. Will retry later.");
+    Serial.println("Conexão MQTT falhou após 5 tentativas. Tentará novamente depois.");
   }
 }
 
@@ -145,7 +145,7 @@ void initializeCommandScheduler() {
   }
 
   if (commandSlotsMutex == nullptr) {
-    addLog("Failed to initialize command scheduler");
+    addLog("Falha ao inicializar o agendador de comandos");
     return;
   }
 
@@ -360,14 +360,14 @@ void startCommandWorker(int slotIndex) {
   );
 
   if (result != pdPASS) {
-    addLog("Failed to start command worker for \"" + command + "\"");
+    addLog("Falha ao iniciar o worker de comando para \"" + command + "\"");
     xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
     commandSlots[slotIndex].active = false;
     commandSlots[slotIndex].taskHandle = nullptr;
     commandSlots[slotIndex].triggerImmediate = false;
     xSemaphoreGive(commandSlotsMutex);
   } else {
-    addLog("Started command worker for \"" + command + "\" @ " + String(intervalMs) + "ms");
+    addLog("Worker de comando iniciado para \"" + command + "\" @ " + String(intervalMs) + "ms");
   }
 }
 
@@ -433,7 +433,7 @@ void commandTask(void *param) {
       xSemaphoreGive(commandSlotsMutex);
 
       if (shouldExit) {
-        addLog("Stopped command worker for \"" + command + "\"");
+        addLog("Worker de comando encerrado para \"" + command + "\"");
         break;
       }
     } else {
@@ -480,8 +480,8 @@ bool sendCommandToTcpServer(const String &command, String &responseOut) {
   lastRequestSent = command;
 
   if (!serverFound) {
-    addLog("Cannot send command - server not connected");
-    lastResponseReceived = "Server not connected";
+    addLog("Não é possível enviar comando - servidor não conectado");
+    lastResponseReceived = "Servidor não conectado";
     return false;
   }
 
@@ -490,12 +490,12 @@ bool sendCommandToTcpServer(const String &command, String &responseOut) {
   bool connected = serverFound && client.connected();
   if (!connected) {
     xSemaphoreGive(serverMutex);
-    addLog("Cannot send command - server not connected");
-    lastResponseReceived = "Server not connected";
+    addLog("Não é possível enviar comando - servidor não conectado");
+    lastResponseReceived = "Servidor não conectado";
     return false;
   }
 
-  Serial.print("Sending to server: ");
+  Serial.print("Enviando para o servidor: ");
   Serial.println(command);
 
   client.println(command);
@@ -510,12 +510,12 @@ bool sendCommandToTcpServer(const String &command, String &responseOut) {
   bool received = false;
   if (client.available()) {
     responseOut = client.readStringUntil('\n');
-    Serial.print("Server response: ");
+    Serial.print("Resposta do servidor: ");
     Serial.println(responseOut);
     received = true;
   } else {
-    responseOut = "No response from server";
-    addLog("No response from server");
+    responseOut = "Nenhuma resposta do servidor";
+    addLog("Nenhuma resposta do servidor");
   }
 
   xSemaphoreGive(serverMutex);
@@ -569,7 +569,7 @@ bool sendCommandAndMaybePublish(int slotIndex, const String &command, bool sendA
 }
 
 void handleMqttRequest(const String &payload) {
-  addLog("MQTT Request received: " + payload);
+  addLog("Solicitação MQTT recebida: " + payload);
 
   String command;
   unsigned long intervalMs = 0;
@@ -577,7 +577,7 @@ void handleMqttRequest(const String &payload) {
   bool hasMetadata = false;
 
   if (!parseRequestPayload(payload, command, intervalMs, sendAlways, hasMetadata)) {
-    addLog("Invalid request payload format");
+    addLog("Formato inválido de carga de solicitação");
     return;
   }
 
@@ -585,7 +585,7 @@ void handleMqttRequest(const String &payload) {
 
   int slotIndex = reserveSlotForCommand(command);
   if (slotIndex == -1) {
-    addLog("Unable to reserve slot for command: " + command + ". Executing once without scheduling.");
+    addLog("Não foi possível reservar slot para o comando: " + command + ". Executando uma vez sem agendamento.");
     sendCommandAndMaybePublish(-1, command, effectiveSendAlways);
     return;
   }
@@ -607,7 +607,7 @@ void handleMqttRequest(const String &payload) {
     }
 
     if (hadActiveWorker) {
-      addLog("Stopping repeating command \"" + command + "\" after next response");
+      addLog("Parando comando repetido \"" + command + "\" após a próxima resposta");
     } else {
       sendCommandAndMaybePublish(slotIndex, command, effectiveSendAlways);
     }
@@ -633,12 +633,12 @@ void handleMqttRequest(const String &payload) {
   }
 
   if (alreadyActive) {
-    addLog("Updated command \"" + command + "\" interval to " + String(intervalMs) + "ms");
+    addLog("Intervalo do comando \"" + command + "\" atualizado para " + String(intervalMs) + "ms");
     return;
   }
 
   if (getActiveWorkerCount() >= maxCommandWorkers) {
-    addLog("Maximum command workers reached. Executing \"" + command + "\" once only");
+    addLog("Número máximo de workers de comando atingido. Executando \"" + command + "\" apenas uma vez");
     sendCommandAndMaybePublish(slotIndex, command, effectiveSendAlways);
     return;
   }
@@ -648,7 +648,7 @@ void handleMqttRequest(const String &payload) {
 
 void handleCommand(String command) {
   command.trim();
-  addLog("Command received: " + command);
+  addLog("Comando recebido: " + command);
   lastCommandReceived = command;
   
   // Convert to lowercase for comparison
@@ -656,7 +656,7 @@ void handleCommand(String command) {
   cmdLower.toLowerCase();
   
   if (cmdLower.equals("boot")) {
-    addLog("Rebooting device...");
+    addLog("Reiniciando dispositivo...");
     delay(1000);
     ESP.restart();
   }
@@ -664,7 +664,7 @@ void handleCommand(String command) {
     handleFactoryResetCommand();
   }
   else if (cmdLower.equals("scan")) {
-    addLog("Starting network rescan...");
+    addLog("Iniciando nova varredura de rede...");
 
     // Stop current server connection
     if (serverFound) {
@@ -673,7 +673,7 @@ void handleCommand(String command) {
       serverIP = "";
       serverPort = 0;
       internetAddress = "";
-      runningTotal = "None";
+      runningTotal = "Nenhum";
       xSemaphoreGive(serverMutex);
       client.stop();
     }
@@ -693,7 +693,7 @@ void handleCommand(String command) {
     handleIpConfigCommand(command);
   }
   else {
-    addLog("Unknown command: " + command);
+    addLog("Comando desconhecido: " + command);
   }
 }
 
@@ -728,7 +728,7 @@ void handlePortCommand(String command) {
       if (port > 0 && port <= 65535) {
         newPorts[newNumPorts++] = port;
       } else {
-        addLog("Invalid port number: " + portStr);
+        addLog("Número de porta inválido: " + portStr);
         return;
       }
     }
@@ -738,7 +738,7 @@ void handlePortCommand(String command) {
   }
   
   if (newNumPorts == 0) {
-    addLog("Error: No valid ports specified");
+    addLog("Erro: nenhuma porta válida especificada");
     return;
   }
   
@@ -756,7 +756,7 @@ void handlePortCommand(String command) {
   }
   
   // Build confirmation message
-  String portList = "Ports updated: ";
+  String portList = "Portas atualizadas: ";
   for (int i = 0; i < numPorts; i++) {
     portList += String(ports[i]);
     if (i < numPorts - 1) portList += ", ";
@@ -782,7 +782,7 @@ void handlePortCommand(String command) {
 void handleWifiPasswordCommand(String command) {
   int spaceIndex = command.indexOf(' ');
   if (spaceIndex == -1) {
-    addLog("Error: WiFi password command requires a password");
+    addLog("Erro: comando de senha WiFi requer uma senha");
     return;
   }
 
@@ -790,31 +790,31 @@ void handleWifiPasswordCommand(String command) {
   newPassword.trim();
 
   if (newPassword.length() < 8 || newPassword.length() > 63) {
-    addLog("Error: WiFi password must be between 8 and 63 characters");
+    addLog("Erro: a senha WiFi deve ter entre 8 e 63 caracteres");
     return;
   }
 
   if (newPassword == ap_password) {
-    addLog("WiFi password unchanged");
+    addLog("Senha WiFi inalterada");
     return;
   }
 
   preferences.putString("apPassword", newPassword);
   ap_password = newPassword;
 
-  addLog("WiFi password updated. Disconnecting clients...");
+  addLog("Senha WiFi atualizada. Desconectando clientes...");
   WiFi.softAPdisconnect(true);
   delay(200);
 
   if (WiFi.softAP(ap_ssid.c_str(), ap_password.c_str())) {
-    addLog("Access point restarted with new password");
+    addLog("Ponto de acesso reiniciado com a nova senha");
   } else {
-    addLog("Failed to restart access point with new password");
+    addLog("Falha ao reiniciar o ponto de acesso com a nova senha");
   }
 }
 
 void handleFactoryResetCommand() {
-  addLog("Factory reset requested");
+  addLog("Solicitada restauração de fábrica");
 
   WiFi.softAPdisconnect(true);
   preferences.clear();
@@ -829,7 +829,7 @@ void handleFactoryResetCommand() {
   wiredStaticGateway = IPAddress(0, 0, 0, 0);
   wiredStaticDns = IPAddress(0, 0, 0, 0);
 
-  addLog("Preferences cleared. Rebooting...");
+  addLog("Preferências limpas. Reiniciando...");
   delay(1000);
   ESP.restart();
 }
@@ -840,7 +840,7 @@ void handleIpConfigCommand(String command) {
 
   int spaceIndex = working.indexOf(' ');
   if (spaceIndex == -1) {
-    addLog("Usage: ipconfig <dhcp|fixed> <ip> <mask> <gateway> <dns>");
+    addLog("Uso: ipconfig <dhcp|fixed> <ip> <mask> <gateway> <dns>");
     return;
   }
 
@@ -848,7 +848,7 @@ void handleIpConfigCommand(String command) {
   working.trim();
 
   if (working.length() == 0) {
-    addLog("Usage: ipconfig <dhcp|fixed> <ip> <mask> <gateway> <dns>");
+    addLog("Uso: ipconfig <dhcp|fixed> <ip> <mask> <gateway> <dns>");
     return;
   }
 
@@ -874,7 +874,7 @@ void handleIpConfigCommand(String command) {
   }
 
   if (tokenCount == 0) {
-    addLog("Usage: ipconfig <dhcp|fixed> <ip> <mask> <gateway> <dns>");
+    addLog("Uso: ipconfig <dhcp|fixed> <ip> <mask> <gateway> <dns>");
     return;
   }
 
@@ -885,20 +885,20 @@ void handleIpConfigCommand(String command) {
 
   if (mode == "dhcp") {
     if (setWiredConfiguration(true, "", "", "", "", errorMessage)) {
-      addLog("Ethernet configured for DHCP via MQTT");
+      addLog("Ethernet configurada para DHCP via MQTT");
     } else {
-      addLog("Failed to apply DHCP configuration: " + errorMessage);
+      addLog("Falha ao aplicar configuração DHCP: " + errorMessage);
     }
     return;
   }
 
   if (mode != "fixed") {
-    addLog("Unknown IP configuration mode: " + tokens[0]);
+    addLog("Modo de configuração de IP desconhecido: " + tokens[0]);
     return;
   }
 
   if (tokenCount < 5) {
-    addLog("Usage: ipconfig fixed <ip> <mask> <gateway> <dns>");
+    addLog("Uso: ipconfig fixed <ip> <mask> <gateway> <dns>");
     return;
   }
 
@@ -908,8 +908,8 @@ void handleIpConfigCommand(String command) {
   String dns = tokens[4];
 
   if (setWiredConfiguration(false, ip, mask, gateway, dns, errorMessage)) {
-    addLog("Ethernet static IP set to " + ip + " via MQTT");
+    addLog("IP estático da Ethernet definido como " + ip + " via MQTT");
   } else {
-    addLog("Failed to apply static IP configuration: " + errorMessage);
+    addLog("Falha ao aplicar configuração de IP estático: " + errorMessage);
   }
 }
