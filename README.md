@@ -1,15 +1,15 @@
-# Penelope Wired
+# Sylvester Wired
 
-Penelope Wired is a WT32-ETH01 firmware that combines Ethernet backhaul, a Wi-Fi access point, MQTT telemetry, and a resilient TCP polling loop to locate and monitor PLCs or other automation controllers on the local network. The sketch exposes a real-time web dashboard, publishes structured MQTT topics, and stores critical settings in non-volatile preferences so the scanner can recover automatically after power loss.
+Sylvester Wired is a WT32-ETH01 firmware that combines Ethernet backhaul, a Wi-Fi access point, MQTT telemetry, and a resilient TCP polling loop to locate and monitor PLCs or other automation controllers on the local network. The sketch exposes a real-time web dashboard, publishes structured MQTT topics, and stores critical settings in non-volatile preferences so the scanner can recover automatically after power loss.
 
 ## Hardware and Network Overview
-- **Platform:** WT32-ETH01 with LAN8720 Ethernet PHY (`ETH.begin` in `penelope-wired.ino`).
+- **Platform:** WT32-ETH01 with LAN8720 Ethernet PHY (`ETH.begin` in `sylvester-wired.ino`).
 - **Ethernet role:** Primary uplink for MQTT and TCP server communication. The firmware waits for `ARDUINO_EVENT_ETH_GOT_IP` before starting MQTT and scanning where possible.
-- **Wi-Fi role:** Local management access point named `penelope-<mac>` that mirrors the device MAC address without colons.
+- **Wi-Fi role:** Local management access point named `sylvester-<mac>` that mirrors the device MAC address without colons.
 
 ## Startup Flow
 1. Initialise serial logging and Ethernet, tracking link state transitions with `WiFi.onEvent` (`onEvent` in `network.ino`).
-2. Derive the device MAC, MQTT topic base (`penelope/<mac>/`), and access point SSID.
+2. Derive the device MAC, MQTT topic base (`sylvester/<mac>/`), and access point SSID.
 3. Open the `wifi-config` namespace in `Preferences`, restore the stored Wi-Fi password and port list (`loadWifiSettings`, `loadPorts` in `network.ino`).
 4. Start the management access point and HTTP server (`setupAccessPoint`).
 5. Once Ethernet is ready the device connects to MQTT, launches eight parallel scan tasks, and begins polling any discovered server.
@@ -40,7 +40,7 @@ Penelope Wired is a WT32-ETH01 firmware that combines Ethernet backhaul, a Wi-Fi
 - Factory resets clear the stored password, returning the SoftAP to the default credentials on the next boot.
 
 ## MQTT Topics
-Topics are namespaced by the sanitized MAC address: `penelope/<mac>/`. Key topics include:
+Topics are namespaced by the sanitized MAC address: `sylvester/<mac>/`. Key topics include:
 
 | Topic suffix | Direction | Payload | Source |
 |--------------|-----------|---------|--------|
@@ -51,7 +51,7 @@ Topics are namespaced by the sanitized MAC address: `penelope/<mac>/`. Key topic
 | `log`        | Publish   | Human-readable status lines from `addLog` | Device |
 
 ## Command Reference
-Commands are received on `penelope/<mac>/command` and are case-insensitive.
+Commands are received on `sylvester/<mac>/command` and are case-insensitive.
 
 | Command | Parameters | Effect |
 |---------|------------|--------|
@@ -66,7 +66,7 @@ Invalid parameters are rejected with descriptive log entries that surface both o
 
 ## Monitoring Interfaces
 - **Web dashboard (`/`):** Live log viewer with automatic scrolling, status summary cards, and Ethernet connection indicators (`handleMonitor`, `handleLogs`, `handleCSS` in `webpage.ino`).
-- **MQTT log stream:** Every `addLog` call is echoed to `penelope/<mac>/log`, allowing remote monitoring without the web UI.
+- **MQTT log stream:** Every `addLog` call is echoed to `sylvester/<mac>/log`, allowing remote monitoring without the web UI.
 - **Stored metadata:** The dashboard and MQTT logs include the last command received, last request forwarded, and last response captured for quick troubleshooting.
 
 ## Persistence and Factory Reset
@@ -78,4 +78,4 @@ Invalid parameters are rejected with descriptive log entries that surface both o
 - All tasks yield frequently to feed the watchdog (`yield()` calls within loops) ensuring stability even during long scans.
 - The firmware gracefully handles missing Ethernet at boot by deferring MQTT and scanning until a link becomes available.
 - HTTP handlers and MQTT callbacks reuse the shared logging utilities, so extending features should mirror the existing `addLog` patterns for consistency.
-- Networking helpers (Ethernet events, Wi-Fi AP management, wired configuration, and scanning utilities) live in `network.ino`, keeping `penelope-wired.ino` focused on orchestrating setup and the main loop.
+- Networking helpers (Ethernet events, Wi-Fi AP management, wired configuration, and scanning utilities) live in `network.ino`, keeping `sylvester-wired.ino` focused on orchestrating setup and the main loop.

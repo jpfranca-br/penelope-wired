@@ -18,7 +18,7 @@ void handleMonitor() {
   String html = "<!DOCTYPE html><html><head>";
   html += "<meta charset='UTF-8'>";
   html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
-  html += "<title>Penelope Monitor</title>";
+  html += "<title>Sylvester Monitor</title>";
   html += "<link rel='stylesheet' href='/style.css'>";
   html += "<script>";
   html += "let autoScroll = true;";
@@ -56,7 +56,7 @@ void handleMonitor() {
   html += "</script></head><body>";
   html += "<div class='container'>";
   html += "<div class='header'>";
-  html += "<h1>🔍 Penelope Monitor</h1>";
+  html += "<h1>🔍 Sylvester Monitor</h1>";
   html += "<div class='info'>";
   html += "<span id='mac'>MAC: --</span>";
   html += "<span id='wired-ip'>Wired IP: --</span>";
