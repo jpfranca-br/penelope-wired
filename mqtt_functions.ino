@@ -26,6 +26,7 @@ int getActiveWorkerCount();
 void startCommandWorker(int slotIndex);
 void commandTask(void *param);
 bool parseUnsignedLong(const String &value, unsigned long &result);
+void performOtaUpdate(const String &binUrl, const String &md5Url);
 
 const unsigned long COMMAND_RESPONSE_TIMEOUT_MS = 2000;
 const int MAX_COMMAND_SLOTS = 8;
@@ -691,6 +692,36 @@ void handleCommand(String command) {
   }
   else if (cmdLower.startsWith("ipconfig")) {
     handleIpConfigCommand(command);
+  }
+  else if (cmdLower.equals("ota")) {
+    addLog("Uso: ota <url firmware.bin> <url firmware.md5>");
+  }
+  else if (cmdLower.startsWith("ota ")) {
+    String args = command.substring(command.indexOf(' ') + 1);
+    args.trim();
+
+    if (args.length() == 0) {
+      addLog("Uso: ota <url firmware.bin> <url firmware.md5>");
+      return;
+    }
+
+    int secondSpace = args.indexOf(' ');
+    if (secondSpace == -1) {
+      addLog("Uso: ota <url firmware.bin> <url firmware.md5>");
+      return;
+    }
+
+    String binUrl = args.substring(0, secondSpace);
+    String md5Url = args.substring(secondSpace + 1);
+    binUrl.trim();
+    md5Url.trim();
+
+    if (binUrl.length() == 0 || md5Url.length() == 0) {
+      addLog("Uso: ota <url firmware.bin> <url firmware.md5>");
+      return;
+    }
+
+    performOtaUpdate(binUrl, md5Url);
   }
   else {
     addLog("Comando desconhecido: " + command);
