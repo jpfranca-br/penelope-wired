@@ -61,6 +61,7 @@ Commands are received on `sylvester/<mac>/command` and are case-insensitive.
 | `port <p1> [p2 ...]` | 1–10 integers | Saves up to 10 TCP ports, restarts scanning with the new list. |
 | `ipconfig <dhcp|fixed> <ip> <mask> <gateway> <dns>` | `dhcp` or `fixed` plus IP fields (static mode requires all values) | Reconfigures the wired interface, persisting DHCP mode or the supplied static addressing and rebooting Ethernet to apply it. |
 | `wifipassword <password>` | 8–63 character string | Updates the SoftAP password, saves it to flash, disconnects existing stations, and restarts the access point. |
+| `ota <url firmware.bin> <url firmware.md5>` | Two URLs | Baixa o arquivo `.bin` e o hash MD5 via HTTP/HTTPS, valida a integridade e aplica a nova firmware automaticamente. |
 
 Invalid parameters are rejected with descriptive log entries that surface both on the dashboard and the MQTT log topic.
 

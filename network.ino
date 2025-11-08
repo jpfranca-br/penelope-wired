@@ -2,6 +2,7 @@
 
 #include <ETH.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <Preferences.h>
 #include <WebServer.h>
@@ -45,6 +46,7 @@ extern String wiredStaticGatewayStr;
 extern String wiredStaticDnsStr;
 extern const char* const PREF_KEY_SERVER_IP;
 extern const char* const PREF_KEY_SERVER_PORT;
+extern const char* otaRootCACertificate;
 
 void addLog(String message);
 void handleMonitor();
@@ -593,4 +595,94 @@ void loadPorts() {
   }
 
   yield();
+}
+
+bool beginHttpDownload(const String &url, HTTPClient &http, WiFiClient *&clientOut, String &errorMessage) {
+  clientOut = nullptr;
+  String trimmedUrl = url;
+  trimmedUrl.trim();
+
+  if (trimmedUrl.length() == 0) {
+    errorMessage = "URL vazia";
+    return false;
+  }
+
+  String urlLower = trimmedUrl;
+  urlLower.toLowerCase();
+
+  bool isHttps = urlLower.startsWith("https://");
+  bool isHttp = urlLower.startsWith("http://");
+
+  if (!isHttp && !isHttps) {
+    errorMessage = "URL deve iniciar com http:// ou https://";
+    return false;
+  }
+
+  http.end();
+  http.setTimeout(15000);
+#if defined(HTTPCLIENT_1_1_COMPATIBLE)
+  http.useHTTP10(false);
+#endif
+#ifdef HTTPC_STRICT_FOLLOW_REDIRECTS
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+#endif
+
+  if (isHttps) {
+    static WiFiClientSecure secureClient;
+    secureClient.stop();
+
+    if (otaRootCACertificate != nullptr && otaRootCACertificate[0] != '\0') {
+      if (!secureClient.setCACert(otaRootCACertificate)) {
+        errorMessage = "Falha ao aplicar certificado raiz";
+        return false;
+      }
+    } else {
+      secureClient.setInsecure();
+    }
+
+    if (!http.begin(secureClient, trimmedUrl)) {
+      errorMessage = "Falha ao iniciar conexão HTTPS";
+      return false;
+    }
+
+    clientOut = &secureClient;
+  } else {
+    static WiFiClient plainClient;
+    plainClient.stop();
+
+    if (!http.begin(plainClient, trimmedUrl)) {
+      errorMessage = "Falha ao iniciar conexão HTTP";
+      return false;
+    }
+
+    clientOut = &plainClient;
+  }
+
+  return true;
+}
+
+bool downloadTextFile(const String &url, String &content, String &errorMessage) {
+  HTTPClient http;
+  WiFiClient *client = nullptr;
+
+  if (!beginHttpDownload(url, http, client, errorMessage)) {
+    return false;
+  }
+
+  (void)client;
+
+  int httpCode = http.GET();
+  if (httpCode != HTTP_CODE_OK) {
+    String reason = http.errorToString(httpCode);
+    errorMessage = "HTTP " + String(httpCode);
+    if (reason.length() > 0) {
+      errorMessage += " - " + reason;
+    }
+    http.end();
+    return false;
+  }
+
+  content = http.getString();
+  http.end();
+  return true;
 }
