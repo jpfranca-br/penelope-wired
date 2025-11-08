@@ -30,7 +30,7 @@ Sylvester Wired is a WT32-ETH01 firmware that combines Ethernet backhaul, a Wi-F
 ## Resilience and Self-healing
 - Ethernet event callbacks clear cached IPs and trigger reconnect logic when the wired link drops (`onEvent` in `network.ino`).
 - MQTT connection attempts are retried up to five times with watchdog-friendly delays (`connectMQTT`).
-- The TCP client uses bounded retries for both reconnects and command polling (`ensureServerConnection`, `sendCommand` in `tcp_server.ino`).
+- The TCP client uses bounded retries when reconnecting to the controller before forwarding requests (`ensureServerConnection` in `tcp_server.ino`).
 - Logs are buffered in `logBuffer` (200 entries) and always mirrored to MQTT when available, providing traceability after transient faults.
 - If the TCP server or Ethernet link disappears the scanner automatically restarts the discovery process.
 
@@ -47,7 +47,6 @@ Topics are namespaced by the sanitized MAC address: `sylvester/<mac>/`. Key topi
 | `command`    | Subscribe | String commands listed below | Cloud/controller |
 | `request`    | Subscribe | Raw TCP payload to forward to the discovered server | Cloud/controller |
 | `response`   | Publish   | Single-line response from the TCP server after forwarding a request | Device |
-| `running`    | Publish   | Periodic heartbeat with the latest `(&V)` poll response | Device |
 | `log`        | Publish   | Human-readable status lines from `addLog` | Device |
 
 ## Command Reference
@@ -72,6 +71,7 @@ Invalid parameters are rejected with descriptive log entries that surface both o
 
 ## Persistence and Factory Reset
 - `Preferences` namespace `wifi-config` keeps the port list (`numPorts`, `port0...`) and SoftAP password across reboots.
+- Request workers defined through the `request` topic are saved to flash (`persistCommandSlots` in `mqtt_functions.ino`) so schedules resume after a reboot.
 - Wired Ethernet selections live in the same namespace under `ethMode`, `ethIP`, `ethMask`, `ethGateway`, and `ethDns`, letting the device boot straight into the last DHCP/static profile without manual intervention.
 - The `factoryreset` command (or clearing the namespace manually) wipes the stored keys, applies the default Wi-Fi password, and forces a reboot so scanning restarts with default ports.
 

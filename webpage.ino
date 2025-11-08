@@ -40,8 +40,6 @@ void handleMonitor() {
   html += "    if (requestEl) requestEl.textContent = data.last_request || 'Nenhum';";
   html += "    const responseEl = document.getElementById('last-response');";
   html += "    if (responseEl) responseEl.textContent = data.last_response || 'Nenhum';";
-  html += "    const runningEl = document.getElementById('running-total');";
-  html += "    if (runningEl) runningEl.textContent = data.running_total || 'Nenhum';";
   html += "    document.getElementById('status').innerText = data.eth ? 'Conectado' : 'Desconectado';";
   html += "    document.getElementById('status').className = data.eth ? 'status connected' : 'status disconnected';";
   html += "  });";
@@ -71,7 +69,6 @@ void handleMonitor() {
   html += "<div class='activity-grid'>";
   html += "<div class='detail-card'><h2>Última requisição</h2><div class='detail-value' id='last-request'>Nenhum</div></div>";
   html += "<div class='detail-card'><h2>Última resposta</h2><div class='detail-value' id='last-response'>Nenhum</div></div>";
-  html += "<div class='detail-card'><h2>Total em execução</h2><div class='detail-value' id='running-total'>Nenhum</div></div>";
   html += "</div>";
   html += "<div id='logs' class='log-container'></div>";
   html += "<div class='footer'>Atualização automática a cada segundo | Rolagem travada no fim</div>";
@@ -106,7 +103,6 @@ void handleLogs() {
   json += ",\"last_command\":\"" + escapeJson(lastCommandReceived) + "\"";
   json += ",\"last_request\":\"" + escapeJson(lastRequestSent) + "\"";
   json += ",\"last_response\":\"" + escapeJson(lastResponseReceived) + "\"";
-  json += ",\"running_total\":\"" + escapeJson(runningTotal) + "\"";
   json += "}";
 
   server.send(200, "application/json", json);

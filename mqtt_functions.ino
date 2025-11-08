@@ -15,6 +15,8 @@ void handleWifiPasswordCommand(String command);
 void handleFactoryResetCommand();
 void handleIpConfigCommand(String command);
 void initializeCommandScheduler();
+void persistCommandSlots();
+void loadPersistedCommandSlots();
 void handleMqttRequest(const String &payload);
 uint32_t calculateCommandCrc32(const String &command);
 String buildResponseTopic(const String &command);
@@ -27,6 +29,7 @@ void startCommandWorker(int slotIndex);
 void commandTask(void *param);
 bool parseUnsignedLong(const String &value, unsigned long &result);
 void performOtaUpdate(const String &binUrl, const String &md5Url);
+bool ensureServerConnection();
 
 const unsigned long COMMAND_RESPONSE_TIMEOUT_MS = 2000;
 const int MAX_COMMAND_SLOTS = 8;
@@ -165,6 +168,111 @@ void initializeCommandScheduler() {
     commandSlots[i].taskHandle = nullptr;
   }
   xSemaphoreGive(commandSlotsMutex);
+}
+
+void persistCommandSlots() {
+  if (commandSlotsMutex == nullptr) {
+    return;
+  }
+
+  struct SlotSnapshot {
+    bool inUse;
+    bool active;
+    bool sendAlways;
+    unsigned long intervalMs;
+    String command;
+  };
+
+  SlotSnapshot snapshots[MAX_COMMAND_SLOTS];
+
+  xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+  for (int i = 0; i < MAX_COMMAND_SLOTS; ++i) {
+    snapshots[i].inUse = commandSlots[i].inUse;
+    snapshots[i].active = commandSlots[i].active;
+    snapshots[i].sendAlways = commandSlots[i].sendAlways;
+    snapshots[i].intervalMs = commandSlots[i].intervalMs;
+    snapshots[i].command = commandSlots[i].command;
+  }
+  xSemaphoreGive(commandSlotsMutex);
+
+  for (int i = 0; i < MAX_COMMAND_SLOTS; ++i) {
+    String baseKey = "reqSlot" + String(i);
+    String keyInUse = baseKey + "InUse";
+    String keyCmd = baseKey + "Cmd";
+    String keyInterval = baseKey + "Interval";
+    String keyAlways = baseKey + "Always";
+    String keyActive = baseKey + "Active";
+
+    preferences.putBool(keyInUse.c_str(), snapshots[i].inUse);
+
+    if (!snapshots[i].inUse) {
+      preferences.remove(keyCmd.c_str());
+      preferences.remove(keyInterval.c_str());
+      preferences.remove(keyAlways.c_str());
+      preferences.remove(keyActive.c_str());
+      continue;
+    }
+
+    preferences.putString(keyCmd.c_str(), snapshots[i].command);
+    preferences.putULong(keyInterval.c_str(), snapshots[i].intervalMs);
+    preferences.putBool(keyAlways.c_str(), snapshots[i].sendAlways);
+    preferences.putBool(keyActive.c_str(), snapshots[i].active);
+  }
+}
+
+void loadPersistedCommandSlots() {
+  if (commandSlotsMutex == nullptr) {
+    return;
+  }
+
+  bool anyRestored = false;
+
+  for (int i = 0; i < MAX_COMMAND_SLOTS; ++i) {
+    String baseKey = "reqSlot" + String(i);
+    String keyInUse = baseKey + "InUse";
+
+    bool inUse = preferences.getBool(keyInUse.c_str(), false);
+    if (!inUse) {
+      continue;
+    }
+
+    String command = preferences.getString((baseKey + "Cmd").c_str(), "");
+    if (command.length() == 0) {
+      continue;
+    }
+
+    unsigned long interval = preferences.getULong((baseKey + "Interval").c_str(), 0);
+    bool sendAlways = preferences.getBool((baseKey + "Always").c_str(), true);
+    bool wasActive = preferences.getBool((baseKey + "Active").c_str(), interval > 0);
+
+    xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+    CommandSlot &slot = commandSlots[i];
+    slot.inUse = true;
+    slot.active = false;
+    slot.sendAlways = sendAlways;
+    slot.triggerImmediate = false;
+    slot.terminateAfterNext = false;
+    slot.intervalMs = interval;
+    slot.nextRun = 0;
+    slot.command = command;
+    slot.lastResponse = "";
+    slot.hasLastResponse = false;
+    slot.taskHandle = nullptr;
+    xSemaphoreGive(commandSlotsMutex);
+
+    anyRestored = true;
+
+    if (interval > 0 && wasActive) {
+      addLog("Restaurando worker persistido para \"" + command + "\" a cada " + String(interval) + "ms");
+      startCommandWorker(i);
+    } else {
+      addLog("Comando persistido carregado: \"" + command + "\"");
+    }
+  }
+
+  if (anyRestored) {
+    persistCommandSlots();
+  }
 }
 
 bool parseUnsignedLong(const String &value, unsigned long &result) {
@@ -449,6 +557,7 @@ void commandTask(void *param) {
     commandSlots[slotIndex].triggerImmediate = false;
     commandSlots[slotIndex].terminateAfterNext = false;
     xSemaphoreGive(commandSlotsMutex);
+    persistCommandSlots();
   }
 
   vTaskDelete(nullptr);
@@ -489,7 +598,11 @@ bool sendCommandToTcpServer(const String &command, String &responseOut) {
   xSemaphoreTake(serverMutex, portMAX_DELAY);
 
   bool connected = serverFound && client.connected();
-  if (!connected) {
+  if (!connected && serverFound) {
+    connected = ensureServerConnection();
+  }
+
+  if (!serverFound || !connected) {
     xSemaphoreGive(serverMutex);
     addLog("Não é possível enviar comando - servidor não conectado");
     lastResponseReceived = "Servidor não conectado";
@@ -576,6 +689,7 @@ void handleMqttRequest(const String &payload) {
   unsigned long intervalMs = 0;
   bool sendAlways = false;
   bool hasMetadata = false;
+  bool persistNeeded = false;
 
   if (!parseRequestPayload(payload, command, intervalMs, sendAlways, hasMetadata)) {
     addLog("Formato inválido de carga de solicitação");
@@ -598,6 +712,7 @@ void handleMqttRequest(const String &payload) {
       xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
       CommandSlot &slot = commandSlots[slotIndex];
       slot.sendAlways = effectiveSendAlways;
+      persistNeeded = true;
       hadActiveWorker = slot.active;
       if (slot.active) {
         slot.intervalMs = 0;
@@ -609,8 +724,14 @@ void handleMqttRequest(const String &payload) {
 
     if (hadActiveWorker) {
       addLog("Parando comando repetido \"" + command + "\" após a próxima resposta");
+      if (persistNeeded) {
+        persistCommandSlots();
+      }
     } else {
       sendCommandAndMaybePublish(slotIndex, command, effectiveSendAlways);
+      if (persistNeeded) {
+        persistCommandSlots();
+      }
     }
     return;
   }
@@ -624,6 +745,7 @@ void handleMqttRequest(const String &payload) {
     slot.triggerImmediate = true;
     slot.nextRun = 0;
     xSemaphoreGive(commandSlotsMutex);
+    persistNeeded = true;
   }
 
   bool alreadyActive = false;
@@ -635,16 +757,23 @@ void handleMqttRequest(const String &payload) {
 
   if (alreadyActive) {
     addLog("Intervalo do comando \"" + command + "\" atualizado para " + String(intervalMs) + "ms");
+    if (persistNeeded) {
+      persistCommandSlots();
+    }
     return;
   }
 
   if (getActiveWorkerCount() >= maxCommandWorkers) {
     addLog("Número máximo de workers de comando atingido. Executando \"" + command + "\" apenas uma vez");
     sendCommandAndMaybePublish(slotIndex, command, effectiveSendAlways);
+    if (persistNeeded) {
+      persistCommandSlots();
+    }
     return;
   }
 
   startCommandWorker(slotIndex);
+  persistCommandSlots();
 }
 
 void handleCommand(String command) {
@@ -674,7 +803,6 @@ void handleCommand(String command) {
       serverIP = "";
       serverPort = 0;
       internetAddress = "";
-      runningTotal = "Nenhum";
       xSemaphoreGive(serverMutex);
       client.stop();
     }
