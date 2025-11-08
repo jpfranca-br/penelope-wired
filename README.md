@@ -1,82 +1,70 @@
 # Sylvester Wired
 
-Sylvester Wired is a WT32-ETH01 firmware that combines Ethernet backhaul, a Wi-Fi access point, MQTT telemetry, and a resilient TCP polling loop to locate and monitor PLCs or other automation controllers on the local network. The sketch exposes a real-time web dashboard, publishes structured MQTT topics, and stores critical settings in non-volatile preferences so the scanner can recover automatically after power loss.
+Sylvester Wired is firmware for the WT32-ETH01 module that hunts for industrial controllers on a wired LAN, bridges them to
+MQTT, and exposes a technician-friendly web console. The device can be dropped into a cabinet, powered from 5 V, and will scan
+the local /24 network for PLCs while streaming live logs to both the dashboard and an MQTT broker.
 
-## Hardware and Network Overview
-- **Platform:** WT32-ETH01 with LAN8720 Ethernet PHY (`ETH.begin` in `sylvester-wired.ino`).
-- **Ethernet role:** Primary uplink for MQTT and TCP server communication. The firmware waits for `ARDUINO_EVENT_ETH_GOT_IP` before starting MQTT and scanning where possible.
-- **Wi-Fi role:** Local management access point named `sylvester-<mac>` that mirrors the device MAC address without colons.
+> Looking for developer-facing details? See [TECHNICAL_SPEC.md](TECHNICAL_SPEC.md).
 
-## Startup Flow
-1. Initialise serial logging and Ethernet, tracking link state transitions with `WiFi.onEvent` (`onEvent` in `network.ino`).
-2. Derive the device MAC, MQTT topic base (`sylvester/<mac>/`), and access point SSID.
-3. Open the `wifi-config` namespace in `Preferences`, restore the stored Wi-Fi password and port list (`loadWifiSettings`, `loadPorts` in `network.ino`).
-4. Start the management access point and HTTP server (`setupAccessPoint`).
-5. Once Ethernet is ready the device connects to MQTT, launches eight parallel scan tasks, and begins polling any discovered server.
+## Hardware at a Glance
+- **Controller:** WT32-ETH01 (ESP32 with LAN8720 PHY)
+- **Power:** 5 V DC via the module header (≈300 mA peak during Wi-Fi operation)
+- **Networking:** 10/100 Ethernet uplink plus local Wi-Fi access point for configuration
+- **Field Interfaces:** MQTT broker, HTTP dashboard, persistent TCP tunnel to the discovered PLC
 
-## Multi-threaded Searching
-- `startNetworkScan` (in `network.ino`) spawns `NUM_SCAN_TASKS = 8` FreeRTOS tasks to sweep the entire /24 subnet derived from the Ethernet IP and mask.
-- Each task attempts TCP connections against the configured ports list, defaults `{2001, 1771, 854}`. Successful probes send `(&V)` and wait for a banner response to confirm a target.
-- Progress and discoveries are streamed to the log buffer, MQTT log topic, and the web dashboard.
-- When a server is found the shared state halts all other scan tasks and establishes a persistent TCP client (`client.connect`).
-- Commands can be sent to switch ports dynamically via the `port` MQTT command, which saves the list to flash and restarts the scan automatically.
+## First Boot Checklist
+1. **Flash the firmware** using your preferred ESP32 toolchain (Arduino IDE, `esptool.py`, etc.).
+2. **Connect Ethernet** to the plant network and power the module from a regulated 5 V supply.
+3. **Wait for link-up:** the device waits for a wired IP before starting MQTT or scanning. Serial logs (115200 baud) mirror what
+you will later see on the dashboard.
+4. **Join the technician Wi-Fi:** SSID `sylvester-<mac without colons>` with default password `12345678`.
+5. **Open the dashboard:** browse to `http://192.168.4.1/` to watch discovery progress and live logs.
 
-## Wired Ethernet Configuration
-- `loadWiredConfig` (in `network.ino`) restores the persisted DHCP/static mode and any saved addressing from flash, validating all octets before accepting a static configuration. Invalid entries automatically revert to DHCP so the device always boots with a workable profile.
-- `setWiredConfiguration` (in `network.ino`) powers the MQTT `ipconfig` command and technician web form. It enforces that static mode provides IP, mask, gateway, and DNS values, writes them to `Preferences`, and calls `reconnectEthernetWithConfig` to restart Ethernet with the new settings.
-- The wired interface defaults to DHCP after factory reset or initial flash. Subsequent power cycles reuse the most recent configuration stored under the `ethMode`, `ethIP`, `ethMask`, `ethGateway`, and `ethDns` keys.
-- The technician dashboard exposes a **Config** page where selecting the fixed-IP radio button pre-populates each placeholder with the stored static values, making edits quick and preventing typos.
+## Daily Operation
+### Web Dashboard
+- **Monitor status:** `/` shows Ethernet state, last MQTT command, last PLC request/response, and a scrolling log buffer.
+- **Configure wiring:** `/config` lets you switch between DHCP and static IP addressing for the wired port. Static fields are
+pre-filled with the last saved values.
+- **Logs API:** `/logs` returns JSON suitable for remote tooling if you need to ingest logs outside the UI.
 
-## Resilience and Self-healing
-- Ethernet event callbacks clear cached IPs and trigger reconnect logic when the wired link drops (`onEvent` in `network.ino`).
-- MQTT connection attempts are retried up to five times with watchdog-friendly delays (`connectMQTT`).
-- The TCP client uses bounded retries when reconnecting to the controller before forwarding requests (`ensureServerConnection` in `tcp_server.ino`).
-- Logs are buffered in `logBuffer` (200 entries) and always mirrored to MQTT when available, providing traceability after transient faults.
-- If the TCP server or Ethernet link disappears the scanner automatically restarts the discovery process.
+### MQTT Integration
+All MQTT topics are prefixed by `sylvester/<device-mac>/` where `<device-mac>` is the lowercase MAC without colons.
 
-## Wi-Fi Access Point Management
-- Default password: `12345678`. The current password is persisted in `Preferences` under the `apPassword` key (`loadWifiSettings` in `network.ino`).
-- Command `wifipassword <password>` stores a new WPA2 password (8–63 characters), disconnects all connected stations, and restarts the SoftAP with the updated credentials while keeping the web server running.
-- Factory resets clear the stored password, returning the SoftAP to the default credentials on the next boot.
+| Topic | Direction | Usage |
+|-------|-----------|-------|
+| `log` | Publish | Real-time log stream identical to the web console. |
+| `response/<crc32>` | Publish | PLC responses keyed by the CRC32 of the originating command. |
+| `command` | Subscribe | Device management actions (see below). |
+| `request` | Subscribe | PLC polling scheduler; payload format `COMMAND` or `COMMAND|intervalMs|sendAlwaysFlag`. |
 
-## MQTT Topics
-Topics are namespaced by the sanitized MAC address: `sylvester/<mac>/`. Key topics include:
+#### Supported Commands on `command`
+- `boot` — Reboot the device.
+- `factoryreset` — Wipe stored settings (ports, Wi-Fi password, wired profile) and restart.
+- `scan` — Force a fresh network sweep for PLCs.
+- `port <p1> [p2 ...]` — Replace the TCP port list (1–10 values). Scan restarts automatically.
+- `ipconfig dhcp` — Return to DHCP on the wired interface.
+- `ipconfig fixed <ip> <mask> <gateway> <dns>` — Apply a static wired address.
+- `wifipassword <newpass>` — Update the SoftAP password (8–63 chars). AP restarts immediately.
+- `ota <firmware.bin> <firmware.md5>` — Perform an OTA update with integrity checking.
 
-| Topic suffix | Direction | Payload | Source |
-|--------------|-----------|---------|--------|
-| `command`    | Subscribe | String commands listed below | Cloud/controller |
-| `request`    | Subscribe | Raw TCP payload to forward to the discovered server | Cloud/controller |
-| `response`   | Publish   | Single-line response from the TCP server after forwarding a request | Device |
-| `log`        | Publish   | Human-readable status lines from `addLog` | Device |
+#### PLC Request Scheduling on `request`
+Send the raw PLC command as the payload. Optional metadata allows automation:
+- `COMMAND|60000|1` → send every 60 s and always publish responses.
+- `COMMAND|0|` → send once; scheduler slot is released after completion.
+- If `sendAlwaysFlag` is omitted, the device only republishes when the response changes.
 
-## Command Reference
-Commands are received on `sylvester/<mac>/command` and are case-insensitive.
+### Discovering and Tunnelling to the PLC
+- The scanner sweeps the local `/24` range derived from the wired IP mask using up to eight parallel workers.
+- On each candidate, it tests the configured port list and sends `(&V)` to confirm a PLC banner.
+- Once a PLC replies, the device keeps a persistent TCP connection and forwards MQTT `request` traffic through it.
+- The last known PLC IP/port is stored so the device can reconnect quickly after power loss.
 
-| Command | Parameters | Effect |
-|---------|------------|--------|
-| `boot` | — | Reboots the device immediately. |
-| `factoryreset` | — | Clears all persisted settings (ports and Wi-Fi password), disconnects Wi-Fi clients, and restarts so defaults are restored. |
-| `scan` | — | Stops any active TCP session and restarts the network scan from address `.1`. |
-| `port <p1> [p2 ...]` | 1–10 integers | Saves up to 10 TCP ports, restarts scanning with the new list. |
-| `ipconfig <dhcp|fixed> <ip> <mask> <gateway> <dns>` | `dhcp` or `fixed` plus IP fields (static mode requires all values) | Reconfigures the wired interface, persisting DHCP mode or the supplied static addressing and rebooting Ethernet to apply it. |
-| `wifipassword <password>` | 8–63 character string | Updates the SoftAP password, saves it to flash, disconnects existing stations, and restarts the access point. |
-| `ota <url firmware.bin> <url firmware.md5>` | Two URLs | Baixa o arquivo `.bin` e o hash MD5 via HTTP/HTTPS, valida a integridade e aplica a nova firmware automaticamente. |
+## Maintenance and Troubleshooting
+- **Watch the logs:** serial console, MQTT `log` topic, and the dashboard all show identical diagnostics.
+- **Ethernet issues:** if DHCP/static misconfiguration prevents link-up, issue `ipconfig dhcp` from MQTT or use the Wi-Fi
+config page to revert.
+- **OTA safety:** the device validates the MD5 before applying firmware. Provide both `.bin` and matching `.md5` URLs.
+- **Factory reset:** clears Wi-Fi password, port list, wired settings, and scheduled requests. Use when redeploying.
 
-Invalid parameters are rejected with descriptive log entries that surface both on the dashboard and the MQTT log topic.
-
-## Monitoring Interfaces
-- **Web dashboard (`/`):** Live log viewer with automatic scrolling, status summary cards, and Ethernet connection indicators (`handleMonitor`, `handleLogs`, `handleCSS` in `webpage.ino`).
-- **MQTT log stream:** Every `addLog` call is echoed to `sylvester/<mac>/log`, allowing remote monitoring without the web UI.
-- **Stored metadata:** The dashboard and MQTT logs include the last command received, last request forwarded, and last response captured for quick troubleshooting.
-
-## Persistence and Factory Reset
-- `Preferences` namespace `wifi-config` keeps the port list (`numPorts`, `port0...`) and SoftAP password across reboots.
-- Request workers defined through the `request` topic are saved to flash (`persistCommandSlots` in `mqtt_functions.ino`) so schedules resume after a reboot.
-- Wired Ethernet selections live in the same namespace under `ethMode`, `ethIP`, `ethMask`, `ethGateway`, and `ethDns`, letting the device boot straight into the last DHCP/static profile without manual intervention.
-- The `factoryreset` command (or clearing the namespace manually) wipes the stored keys, applies the default Wi-Fi password, and forces a reboot so scanning restarts with default ports.
-
-## Development Notes
-- All tasks yield frequently to feed the watchdog (`yield()` calls within loops) ensuring stability even during long scans.
-- The firmware gracefully handles missing Ethernet at boot by deferring MQTT and scanning until a link becomes available.
-- HTTP handlers and MQTT callbacks reuse the shared logging utilities, so extending features should mirror the existing `addLog` patterns for consistency.
-- Networking helpers (Ethernet events, Wi-Fi AP management, wired configuration, and scanning utilities) live in `network.ino`, keeping `sylvester-wired.ino` focused on orchestrating setup and the main loop.
+## Localization
+A Brazilian Portuguese translation of this README is available in [README-ptBR.md](README-ptBR.md).
