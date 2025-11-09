@@ -1,6 +1,6 @@
-// Root CA trust anchor for Let's Encrypt issued domains (*.ngrok-free.dev).
-// The server supplies its own leaf and intermediate certificates, so we
-// only need to embed the long-lived ISRG Root X1 certificate here.
+// Trust anchor for the Let's Encrypt "E7" intermediate used by *.ngrok-free.dev.
+// OTA validation requires SHA-384 and secp384r1 support in mbedTLS; make sure the
+// build picks up sdkconfig.defaults so those features stay enabled.
 const char OTA_ROOT_CA_CERTIFICATE[] = R"EOF(
 -----BEGIN CERTIFICATE-----
 MIIEVzCCAj+gAwIBAgIRAKp18eYrjwoiCWbTi7/UuqEwDQYJKoZIhvcNAQELBQAw
