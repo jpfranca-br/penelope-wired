@@ -3,6 +3,8 @@
 #include <PubSubClient.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include <stdio.h>
+#include <esp_system.h>
 
 // Ethernet configuration for WT32-ETH01
 #define ETH_PHY_TYPE    ETH_PHY_LAN8720
@@ -126,6 +128,34 @@ volatile int currentScanIP = 1;
 volatile bool scanComplete = false;
 SemaphoreHandle_t scanMutex;
 
+static String normalizeMac(const String &rawMac) {
+  String normalized = rawMac;
+  normalized.replace(":", "");
+  normalized.toLowerCase();
+  return normalized;
+}
+
+void updateMacIdentity(const String &rawMac, bool reapplyAccessPoint) {
+  if (rawMac.length() == 0) {
+    return;
+  }
+
+  String normalized = normalizeMac(rawMac);
+  if (normalized.length() == 0) {
+    return;
+  }
+
+  bool changed = (normalized != macAddress);
+  deviceMac = rawMac;
+  macAddress = normalized;
+  ap_ssid = "sylvester-" + macAddress;
+  mqttTopicBase = "sylvester/" + macAddress + "/";
+
+  if (reapplyAccessPoint && changed) {
+    setupAccessPoint();
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -133,21 +163,29 @@ void setup() {
 
   preferences.begin("wifi-config", false);
 
-  macAddress.replace(":", "");
-  macAddress.toLowerCase();
-  ap_ssid = "sylvester-" + macAddress;
-  mqttTopicBase = "sylvester/" + macAddress + "/";
-  loadWifiSettings();
-  setupAccessPoint();
-  
   loadWiredConfig();
   loadPersistedServerDetails();
 
-  // Setup Ethernet
+  // Setup Ethernet so we can retrieve the hardware MAC before configuring Wi-Fi topics/SSIDs
   Serial.println("Iniciando Ethernet cabeada...");
   WiFi.onEvent(onEvent);
   ETH.begin(ETH_PHY_TYPE, ETH_PHY_ADDR, ETH_PHY_MDC, ETH_PHY_MDIO, ETH_PHY_POWER, ETH_CLK_MODE);
   applyWiredConfigToDriver(true);
+
+  String rawMac = ETH.macAddress();
+  if (rawMac.length() == 0) {
+    uint8_t baseMac[6] = {0};
+    if (esp_read_mac(baseMac, ESP_MAC_ETH) == ESP_OK) {
+      char baseMacStr[18];
+      sprintf(baseMacStr, "%02X:%02X:%02X:%02X:%02X:%02X",
+              baseMac[0], baseMac[1], baseMac[2], baseMac[3], baseMac[4], baseMac[5]);
+      rawMac = String(baseMacStr);
+    }
+  }
+  updateMacIdentity(rawMac, false);
+
+  loadWifiSettings();
+  setupAccessPoint();
 
   // Wait for Ethernet connection with proper delay
   int eth_wait = 0;
@@ -161,10 +199,10 @@ void setup() {
   
   if (eth_connected) {
     Serial.println("Ethernet conectada!");
-    macAddress = ETH.macAddress();
-    deviceMac = macAddress;
+    String connectedMac = ETH.macAddress();
+    updateMacIdentity(connectedMac, true);
     Serial.print("MAC: ");
-    Serial.println(macAddress);
+    Serial.println(deviceMac);
     Serial.print("IP: ");
     Serial.println(ETH.localIP());
     wiredIP = ETH.localIP().toString();
@@ -172,8 +210,8 @@ void setup() {
   } else {
     Serial.println("Tempo limite da conexão Ethernet!");
     // Continue anyway - might connect later
-    macAddress = ETH.macAddress();
-    deviceMac = macAddress;
+    String fallbackMac = ETH.macAddress();
+    updateMacIdentity(fallbackMac, true);
   }
 
   loadPorts();
