@@ -61,7 +61,7 @@ void resumeNetworkScan(bool restartImmediately);
 bool pauseAllCommandWorkers();
 void resumeCommandWorkers();
 String normalizeMac();
-void updateMacIdentity();
+void updateMacIdentity(const String &rawMac, bool reapplyAccessPoint);
 bool syncRtcWithNtp();
 
 inline void logMessage(const String &message) {
