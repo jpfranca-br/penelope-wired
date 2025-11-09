@@ -80,6 +80,7 @@ String internetAddress = "";
 String lastCommandReceived = "Nenhum";
 String lastRequestSent = "Nenhum";
 String lastResponseReceived = "Nenhum";
+unsigned long lastCommandTime = 0;
 
 const char* const PREF_KEY_SERVER_IP = "srvIP";
 const char* const PREF_KEY_SERVER_PORT = "srvPort";
