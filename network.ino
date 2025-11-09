@@ -49,6 +49,34 @@ void handleConfigSubmit();
 
 extern bool isOtaCertificateConfigured();
 
+static String normalizeMac(const String &rawMac) {
+  String normalized = rawMac;
+  normalized.replace(":", "");
+  normalized.toLowerCase();
+  return normalized;
+}
+
+void updateMacIdentity(const String &rawMac, bool reapplyAccessPoint) {
+  if (rawMac.length() == 0) {
+    return;
+  }
+
+  String normalized = normalizeMac(rawMac);
+  if (normalized.length() == 0) {
+    return;
+  }
+
+  bool changed = (normalized != macAddress);
+  deviceMac = rawMac;
+  macAddress = normalized;
+  ap_ssid = "sylvester-" + macAddress;
+  mqttTopicBase = "sylvester/" + macAddress + "/";
+
+  if (reapplyAccessPoint && changed) {
+    setupAccessPoint();
+  }
+}
+
 void onEvent(arduino_event_id_t event) {
   switch (event) {
     case ARDUINO_EVENT_ETH_START:
