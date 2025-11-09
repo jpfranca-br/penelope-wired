@@ -51,7 +51,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length);
 void loadPorts();
 void refreshPublicIP();
 void applyWiredConfigToDriver(bool logOutcome);
-void reconnectEthernetWithConfig();
+bool reconnectEthernetWithConfig();
 
 inline void logMessage(const String &message) {
   addLog(message);

@@ -77,8 +77,8 @@ Forward declarations at top tie this module to handlers implemented elsewhere, e
 | `persistServerDetails(const String &ip, int port)` | Saves PLC target information. | `ip`, `port`. | Writes to `Preferences` and logs. |
 | `loadWiredConfig()` | Pulls wired Ethernet mode and addressing from flash, validating IP octets. | None. | Updates `wiredDhcpEnabled` and static address strings/IPAddress instances. Invalid static config is reset to DHCP. |
 | `applyWiredConfigToDriver(bool logOutcome)` | Pushes DHCP or static config into the ESP32 Ethernet driver. | `logOutcome`: whether to emit logs about the result. | Calls `ETH.config`, logs success/failure. |
-| `reconnectEthernetWithConfig()` | Reboots the Ethernet interface using current settings and resets dependent services. | None. | Stops MQTT/TCP if active, restarts `ETH.begin`, re-applies config, and waits for link up to 10 seconds. |
-| `setWiredConfiguration(bool useDhcp, const String &ip, const String &mask, const String &gateway, const String &dns, String &errorMessage)` | Validates technician-supplied wired settings, persists them, and reapplies to the interface. | Mode flag plus optional IP parameters; `errorMessage` output. | Returns `true` on success. Writes preferences, updates cached strings, triggers `reconnectEthernetWithConfig`. |
+| `reconnectEthernetWithConfig()` | Reboots the Ethernet interface using current settings and resets dependent services. | None. | Stops MQTT/TCP if active, restarts `ETH.begin`, re-applies config, waits for link up to 10 seconds, and returns `true` on success. |
+| `setWiredConfiguration(bool useDhcp, const String &ip, const String &mask, const String &gateway, const String &dns, String &errorMessage)` | Validates technician-supplied wired settings, persists them, and reapplies to the interface. | Mode flag plus optional IP parameters; `errorMessage` output. | Returns `true` on success. On static-IP failure, logs and falls back to DHCP while reporting the error. |
 | `loadWifiSettings()` | Loads SoftAP password, falling back to default if invalid. | None. | Sets `ap_password` and logs the outcome. |
 | `setupAccessPoint()` | Starts the ESP32 SoftAP, configures HTTP route handlers, and logs the management IP. | None. | Calls `WiFi.softAP`, registers server callbacks, and begins `server`. |
 | `refreshPublicIP()` | Queries `http://api.ipify.org` to discover the WAN address. | None. | Updates `internetAddress` or logs errors. Defers if Ethernet offline. |
@@ -157,8 +157,8 @@ Forward declarations at top tie this module to handlers implemented elsewhere, e
    * `commandTask` uses `sendCommandAndMaybePublish` → `sendCommandToTcpServer` → `ensureServerConnection` to interact with the PLC.
 4. **HTTP Monitoring**
    * Browser loads `/` (`handleMonitor`), which polls `/logs` (`handleLogs`) each second for log lines and metadata.
-   * `/config` GET returns the form; POST triggers `handleConfigSubmit` which calls `setWiredConfiguration` and then
-     `reconnectEthernetWithConfig` to apply new settings.
+   * `/config` GET returns the form; POST triggers `handleConfigSubmit`, which calls `setWiredConfiguration` to apply the
+     requested mode, retrying with DHCP automatically if the static parameters fail.
 5. **OTA Workflow**
    * MQTT `ota <binUrl> <md5Url>` → `handleCommand` → `performOtaUpdate`.
    * `performOtaUpdate` fetches MD5 (`downloadTextFile`), initiates firmware GET via `beginHttpDownload`, streams to flash with
