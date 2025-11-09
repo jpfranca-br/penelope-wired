@@ -725,8 +725,34 @@ void loadPorts() {
   yield();
 }
 
-bool beginHttpDownload(const String &url, HTTPClient &http, WiFiClient *&clientOut, String &errorMessage) {
+String describeTlsError(WiFiClient *client, bool usedSecureTransport) {
+#if defined(ESP32)
+  if (usedSecureTransport && client != nullptr) {
+    WiFiClientSecure *secureClient = static_cast<WiFiClientSecure *>(client);
+    char tlsError[128] = {0};
+    int32_t lastError = secureClient->lastError(tlsError, sizeof(tlsError));
+    if (lastError != 0) {
+      String description = String("TLS error ") + String(lastError);
+      if (tlsError[0] != '\0') {
+        description += String(": ") + String(tlsError);
+      }
+      return description;
+    }
+  }
+#else
+  (void)client;
+  (void)usedSecureTransport;
+#endif
+  return String("");
+}
+
+bool beginHttpDownload(const String &url,
+                       HTTPClient &http,
+                       WiFiClient *&clientOut,
+                       String &errorMessage,
+                       bool &usedSecureTransport) {
   clientOut = nullptr;
+  usedSecureTransport = false;
   String trimmedUrl = url;
   trimmedUrl.trim();
 
@@ -759,6 +785,8 @@ bool beginHttpDownload(const String &url, HTTPClient &http, WiFiClient *&clientO
     static WiFiClientSecure secureClient;
     secureClient.stop();
 
+    usedSecureTransport = true;
+
     if (otaRootCACertificate != nullptr && otaRootCACertificate[0] != '\0') {
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
       secureClient.setCACert(otaRootCACertificate);
@@ -774,6 +802,10 @@ bool beginHttpDownload(const String &url, HTTPClient &http, WiFiClient *&clientO
 
     if (!http.begin(secureClient, trimmedUrl)) {
       errorMessage = "Falha ao iniciar conexão HTTPS";
+      String tlsError = describeTlsError(&secureClient, usedSecureTransport);
+      if (tlsError.length() > 0) {
+        errorMessage += " - " + tlsError;
+      }
       return false;
     }
 
@@ -796,12 +828,11 @@ bool beginHttpDownload(const String &url, HTTPClient &http, WiFiClient *&clientO
 bool downloadTextFile(const String &url, String &content, String &errorMessage) {
   HTTPClient http;
   WiFiClient *client = nullptr;
+  bool usedSecureTransport = false;
 
-  if (!beginHttpDownload(url, http, client, errorMessage)) {
+  if (!beginHttpDownload(url, http, client, errorMessage, usedSecureTransport)) {
     return false;
   }
-
-  (void)client;
 
   int httpCode = http.GET();
   if (httpCode != HTTP_CODE_OK) {
@@ -810,6 +841,16 @@ bool downloadTextFile(const String &url, String &content, String &errorMessage) 
     if (reason.length() > 0) {
       errorMessage += " - " + reason;
     }
+#if defined(ESP32)
+    if (httpCode <= 0) {
+      String tlsError = describeTlsError(client, usedSecureTransport);
+      if (tlsError.length() > 0) {
+        errorMessage += " | " + tlsError;
+      }
+    }
+#else
+    (void)usedSecureTransport;
+#endif
     http.end();
     return false;
   }
