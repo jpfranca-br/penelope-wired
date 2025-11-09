@@ -4,6 +4,7 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include <stdio.h>
+#include <time.h>
 #include <esp_system.h>
 #include <esp_mac.h>
 
@@ -52,6 +53,10 @@ void loadPorts();
 void refreshPublicIP();
 void applyWiredConfigToDriver(bool logOutcome);
 bool reconnectEthernetWithConfig();
+bool pauseNetworkScan();
+void resumeNetworkScan(bool restartImmediately);
+bool pauseAllCommandWorkers();
+void resumeCommandWorkers();
 
 inline void logMessage(const String &message) {
   addLog(message);
@@ -85,6 +90,48 @@ String lastCommandReceived = "Nenhum";
 String lastRequestSent = "Nenhum";
 String lastResponseReceived = "Nenhum";
 unsigned long lastCommandTime = 0;
+
+unsigned long lastRtcSyncAttempt = 0;
+const unsigned long RTC_SYNC_INTERVAL_MS = 3600000UL;
+
+static bool syncRtcWithNtp(bool logIfDisconnected) {
+  if (!eth_connected) {
+    if (logIfDisconnected) {
+      addLog("Não é possível sincronizar o RTC - Ethernet não conectada");
+    }
+    return false;
+  }
+
+  addLog("Sincronizando RTC com servidores NTP...");
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov", "time.google.com");
+
+  const time_t MIN_VALID_TIME = 1609459200;  // 2021-01-01 00:00:00 UTC
+  const int MAX_ATTEMPTS = 20;
+  bool synced = false;
+
+  for (int attempt = 0; attempt < MAX_ATTEMPTS; ++attempt) {
+    time_t now = time(nullptr);
+    if (now >= MIN_VALID_TIME) {
+      struct tm timeInfo;
+      gmtime_r(&now, &timeInfo);
+      char buffer[32];
+      strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &timeInfo);
+      addLog(String("RTC sincronizado em ") + buffer + " UTC");
+      synced = true;
+      break;
+    }
+
+    delay(200);
+    yield();
+  }
+
+  if (!synced) {
+    addLog("Falha ao sincronizar RTC via NTP");
+  }
+
+  lastRtcSyncAttempt = millis();
+  return synced;
+}
 
 const char* const PREF_KEY_SERVER_IP = "srvIP";
 const char* const PREF_KEY_SERVER_PORT = "srvPort";
@@ -234,6 +281,7 @@ void setup() {
     logMessage("Endereço MAC: " + deviceMac);
     logMessage("Endereço IP: " + ETH.localIP().toString());
     publicIPRefreshRequested = true;
+    syncRtcWithNtp(false);
   } else {
     Serial.println("Iniciando sem conexão Ethernet...");
     logMessage("Aguardando conexão Ethernet...");
@@ -262,6 +310,7 @@ void loop() {
     logMessage("Link Ethernet restaurado - IP: " + ETH.localIP().toString());
     wiredIP = ETH.localIP().toString();
     publicIPRefreshRequested = true;
+    syncRtcWithNtp(false);
     mqttClient.disconnect();
     if (client.connected()) {
       client.stop();
@@ -309,6 +358,10 @@ void loop() {
     bool intervalElapsed = (lastPublicIPCheck == 0) || (now - lastPublicIPCheck >= PUBLIC_IP_REFRESH_INTERVAL);
     if (publicIPRefreshRequested || intervalElapsed) {
       refreshPublicIP();
+    }
+
+    if (lastRtcSyncAttempt == 0 || (now - lastRtcSyncAttempt) >= RTC_SYNC_INTERVAL_MS) {
+      syncRtcWithNtp(false);
     }
   }
 
