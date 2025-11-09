@@ -627,10 +627,14 @@ bool beginHttpDownload(const String &url, HTTPClient &http, WiFiClient *&clientO
     secureClient.stop();
 
     if (otaRootCACertificate != nullptr && otaRootCACertificate[0] != '\0') {
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+      secureClient.setCACert(otaRootCACertificate);
+#else
       if (!secureClient.setCACert(otaRootCACertificate)) {
         errorMessage = "Falha ao aplicar certificado raiz";
         return false;
       }
+#endif
     } else {
       secureClient.setInsecure();
     }
