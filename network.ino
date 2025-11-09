@@ -383,24 +383,8 @@ bool setWiredConfiguration(bool useDhcp, const String &ip, const String &mask, c
     }
 
     uint32_t ipValue = (uint32_t)parsedIP;
-    uint32_t maskValue = (uint32_t)parsedMask;
     uint32_t gatewayValue = (uint32_t)parsedGateway;
-
-    if (maskValue == 0) {
-      errorMessage = "Máscara de sub-rede inválida";
-      return false;
-    }
-
-    bool seenZeroBit = false;
-    for (int bit = 31; bit >= 0; --bit) {
-      bool maskBitSet = (maskValue >> bit) & 0x1;
-      if (!maskBitSet) {
-        seenZeroBit = true;
-      } else if (seenZeroBit) {
-        errorMessage = "Máscara de sub-rede inválida";
-        return false;
-      }
-    }
+    uint32_t maskValue = (uint32_t)parsedMask;
 
     uint32_t networkOfIp = ipValue & maskValue;
     uint32_t networkOfGateway = gatewayValue & maskValue;
