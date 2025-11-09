@@ -1,5 +1,3 @@
-const unsigned long RTC_SYNC_INTERVAL_MS = 3600000UL;
-
 static bool syncRtcWithNtp(bool logIfDisconnected) {
   if (!eth_connected) {
     if (logIfDisconnected) {
