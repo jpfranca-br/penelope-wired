@@ -20,6 +20,9 @@
 
 volatile bool eth_connected = false;
 
+// Interval to refresh RTC 
+const unsigned long RTC_SYNC_INTERVAL_MS = 3600000UL;
+
 // Log buffer shared across modules
 const int MAX_LOG_LINES = 200;
 String logBuffer[MAX_LOG_LINES];
@@ -57,6 +60,9 @@ bool pauseNetworkScan();
 void resumeNetworkScan(bool restartImmediately);
 bool pauseAllCommandWorkers();
 void resumeCommandWorkers();
+String normalizeMac();
+void updateMacIdentity();
+bool syncRtcWithNtp();
 
 inline void logMessage(const String &message) {
   addLog(message);
@@ -109,6 +115,8 @@ String wiredStaticDnsStr = "";
 unsigned long lastPublicIPCheck = 0;
 const unsigned long PUBLIC_IP_REFRESH_INTERVAL = 300000; // 5 minutes
 bool publicIPRefreshRequested = false;
+
+
 
 // Ports to scan
 int ports[10];
