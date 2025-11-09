@@ -57,7 +57,7 @@ inline void logMessage(const String &message) {
 }
 
 // MQTT Broker settings
-const char* mqtt_broker = "broker.hivemq.com";
+const char* mqtt_broker = "mqtt.jpfranca.com";
 const int mqtt_port = 1883;
 const char* mqtt_user = "";
 const char* mqtt_password = "";
@@ -101,7 +101,8 @@ oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq
 4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA
 mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d
 emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
------END CERTIFICATE-----)EOF";
+-----END CERTIFICATE-----
+)EOF";
 
 // MQTT Client
 WiFiClient espClient;
