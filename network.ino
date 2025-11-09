@@ -299,7 +299,7 @@ void applyWiredConfigToDriver(bool logOutcome) {
   }
 }
 
-void reconnectEthernetWithConfig() {
+bool reconnectEthernetWithConfig() {
   addLog("Reinicializando a interface Ethernet para aplicar a configuração...");
 
   bool wasConnected = eth_connected;
@@ -332,8 +332,10 @@ void reconnectEthernetWithConfig() {
     wiredIP = ETH.localIP().toString();
     addLog("Ethernet pronta - IP: " + wiredIP);
     publicIPRefreshRequested = true;
+    return true;
   } else {
     addLog("A reconfiguração da Ethernet expirou");
+    return false;
   }
 }
 
@@ -403,8 +405,36 @@ bool setWiredConfiguration(bool useDhcp, const String &ip, const String &mask, c
   preferences.putString("ethGateway", wiredStaticGatewayStr);
   preferences.putString("ethDns", wiredStaticDnsStr);
 
-  reconnectEthernetWithConfig();
-  return true;
+  bool applied = reconnectEthernetWithConfig();
+
+  if (applied) {
+    return true;
+  }
+
+  if (!wiredDhcpEnabled) {
+    addLog("Falha ao aplicar IP fixo informado. Revertendo para DHCP.");
+
+    wiredDhcpEnabled = true;
+    wiredStaticIP = IPAddress(0, 0, 0, 0);
+    wiredStaticMask = IPAddress(255, 255, 255, 0);
+    wiredStaticGateway = IPAddress(0, 0, 0, 0);
+    wiredStaticDns = IPAddress(0, 0, 0, 0);
+
+    preferences.putUChar("ethMode", 0);
+
+    bool fallbackApplied = reconnectEthernetWithConfig();
+    if (fallbackApplied) {
+      addLog("Reversão para DHCP aplicada após falha de IP fixo.");
+      errorMessage = "Não foi possível conectar usando o IP fixo informado. Configuração revertida para DHCP.";
+    } else {
+      addLog("Falha ao reverter para DHCP após erro de IP fixo.");
+      errorMessage = "Não foi possível conectar usando o IP fixo informado e a reversão para DHCP falhou.";
+    }
+    return false;
+  }
+
+  errorMessage = "Falha ao reinicializar a interface Ethernet.";
+  return false;
 }
 
 void loadWifiSettings() {
