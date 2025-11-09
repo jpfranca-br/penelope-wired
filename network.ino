@@ -47,7 +47,7 @@ void handleCSS();
 void handleConfigPage();
 void handleConfigSubmit();
 
-static bool isOtaCertificateConfigured();
+extern bool isOtaCertificateConfigured();
 
 void onEvent(arduino_event_id_t event) {
   switch (event) {
@@ -444,10 +444,6 @@ void refreshPublicIP() {
   http.end();
 }
 
-
-static bool isOtaCertificateConfigured() {
-  return otaRootCACertificate != nullptr && otaRootCACertificate[0] != '\0';
-}
 
 String describeTlsError(WiFiClient *client, bool usedSecureTransport) {
 #if defined(ESP32)

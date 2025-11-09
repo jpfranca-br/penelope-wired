@@ -14,7 +14,7 @@ extern bool downloadTextFile(const String &url, String &content, String &errorMe
 extern String describeTlsError(WiFiClient *client, bool usedSecureTransport);
 extern const char* otaRootCACertificate;
 
-static bool isOtaCertificateConfigured() {
+bool isOtaCertificateConfigured() {
   return otaRootCACertificate != nullptr && otaRootCACertificate[0] != '\0';
 }
 
