@@ -70,7 +70,7 @@ const char* const DEFAULT_AP_PASSWORD = "12345678";
 String ap_password = DEFAULT_AP_PASSWORD;
 
 // Root CA used for OTA HTTPS downloads. Set to nullptr to allow insecure certificates.
-//const char* otaRootCACertificate = nullptr;
+//const char* otaRootCACertificate = nullptr; // FOLLOWS CERTIFICATE FOR *.ngrok-free.dev
 const char* otaRootCACertificate = R"EOF(
 -----BEGIN CERTIFICATE-----
 MIIDnTCCAyOgAwIBAgISBsE4uGduluqVKh88z16kt9zAMAoGCCqGSM49BAMDMDIx
