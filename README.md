@@ -20,6 +20,13 @@ you will later see on the dashboard.
 4. **Join the technician Wi-Fi:** SSID `sylvester-<mac without colons>` with default password `12345678`.
 5. **Open the dashboard:** browse to `http://192.168.4.1/` to watch discovery progress and live logs.
 
+## Building from Source
+- **Apply the SDK defaults:** the repository ships an `sdkconfig.defaults` that enables SHA-384 and secp384r1 support in mbedTLS.
+  Copy this file next to the sketch (Arduino-ESP32 3.x) or pass it to `idf.py`/PlatformIO so the OTA client can validate the
+  Let’s Encrypt E7 certificate chain served by `*.ngrok-free.dev`.
+- **Build normally:** once the defaults are in place, compile and flash as you would any other ESP32 sketch. Without these
+  options the firmware will fall back to the insecure OTA retry path.
+
 ## Daily Operation
 ### Web Dashboard
 - **Monitor status:** `/` shows Ethernet state, last MQTT command, last PLC request/response, and a scrolling log buffer.
