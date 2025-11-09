@@ -8,9 +8,15 @@ extern bool beginHttpDownload(const String &url,
                               HTTPClient &http,
                               WiFiClient *&clientOut,
                               String &errorMessage,
-                              bool &usedSecureTransport);
+                              bool &usedSecureTransport,
+                              bool forceInsecure);
 extern bool downloadTextFile(const String &url, String &content, String &errorMessage);
 extern String describeTlsError(WiFiClient *client, bool usedSecureTransport);
+extern const char* otaRootCACertificate;
+
+static bool isOtaCertificateConfigured() {
+  return otaRootCACertificate != nullptr && otaRootCACertificate[0] != '\0';
+}
 
 static String describeUpdateError() {
 #if defined(ESP32)
@@ -70,13 +76,26 @@ void performOtaUpdate(const String &binUrl, const String &md5Url) {
   HTTPClient http;
   WiFiClient *client = nullptr;
   bool usedSecureTransport = false;
-  if (!beginHttpDownload(binUrl, http, client, errorMessage, usedSecureTransport)) {
-    addLog("Falha ao iniciar download do firmware: " + errorMessage);
-    return;
-  }
+  bool forceInsecure = false;
 
-  int httpCode = http.GET();
-  if (httpCode != HTTP_CODE_OK) {
+  while (true) {
+    if (!beginHttpDownload(binUrl, http, client, errorMessage, usedSecureTransport, forceInsecure)) {
+      if (!forceInsecure && isOtaCertificateConfigured()) {
+        addLog("Falha ao iniciar download do firmware: " + errorMessage +
+               ". Tentando novamente sem validação de certificado.");
+        forceInsecure = true;
+        continue;
+      }
+
+      addLog("Falha ao iniciar download do firmware: " + errorMessage);
+      return;
+    }
+
+    int httpCode = http.GET();
+    if (httpCode == HTTP_CODE_OK) {
+      break;
+    }
+
     String reason = http.errorToString(httpCode);
     String message = "Download do firmware falhou: HTTP " + String(httpCode);
     if (reason.length() > 0) {
@@ -92,6 +111,15 @@ void performOtaUpdate(const String &binUrl, const String &md5Url) {
 #else
     (void)usedSecureTransport;
 #endif
+
+    bool canRetryInsecure = (!forceInsecure) && usedSecureTransport && isOtaCertificateConfigured() && (httpCode <= 0);
+    if (canRetryInsecure) {
+      addLog(message + ". Tentando novamente sem validação de certificado.");
+      http.end();
+      forceInsecure = true;
+      continue;
+    }
+
     addLog(message);
     http.end();
     return;

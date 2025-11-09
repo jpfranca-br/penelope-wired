@@ -57,6 +57,7 @@ void handleConfigSubmit();
 
 static void scanTask(void *parameter);
 static bool tryReconnectToSavedServer();
+static bool isOtaCertificateConfigured();
 
 #define NUM_SCAN_TASKS 8
 
@@ -725,6 +726,10 @@ void loadPorts() {
   yield();
 }
 
+static bool isOtaCertificateConfigured() {
+  return otaRootCACertificate != nullptr && otaRootCACertificate[0] != '\0';
+}
+
 String describeTlsError(WiFiClient *client, bool usedSecureTransport) {
 #if defined(ESP32)
   if (usedSecureTransport && client != nullptr) {
@@ -750,7 +755,8 @@ bool beginHttpDownload(const String &url,
                        HTTPClient &http,
                        WiFiClient *&clientOut,
                        String &errorMessage,
-                       bool &usedSecureTransport) {
+                       bool &usedSecureTransport,
+                       bool forceInsecure) {
   clientOut = nullptr;
   usedSecureTransport = false;
   String trimmedUrl = url;
@@ -787,7 +793,9 @@ bool beginHttpDownload(const String &url,
 
     usedSecureTransport = true;
 
-    if (otaRootCACertificate != nullptr && otaRootCACertificate[0] != '\0') {
+    bool certificateConfigured = !forceInsecure && isOtaCertificateConfigured();
+
+    if (certificateConfigured) {
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
       secureClient.setCACert(otaRootCACertificate);
 #else
@@ -829,13 +837,27 @@ bool downloadTextFile(const String &url, String &content, String &errorMessage) 
   HTTPClient http;
   WiFiClient *client = nullptr;
   bool usedSecureTransport = false;
+  bool forceInsecure = false;
 
-  if (!beginHttpDownload(url, http, client, errorMessage, usedSecureTransport)) {
-    return false;
-  }
+  while (true) {
+    if (!beginHttpDownload(url, http, client, errorMessage, usedSecureTransport, forceInsecure)) {
+      if (!forceInsecure && isOtaCertificateConfigured()) {
+        addLog(String("Falha ao iniciar download de ") + url + ": " + errorMessage +
+               ". Tentando novamente sem validação de certificado.");
+        forceInsecure = true;
+        continue;
+      }
 
-  int httpCode = http.GET();
-  if (httpCode != HTTP_CODE_OK) {
+      return false;
+    }
+
+    int httpCode = http.GET();
+    if (httpCode == HTTP_CODE_OK) {
+      content = http.getString();
+      http.end();
+      return true;
+    }
+
     String reason = http.errorToString(httpCode);
     errorMessage = "HTTP " + String(httpCode);
     if (reason.length() > 0) {
@@ -851,11 +873,17 @@ bool downloadTextFile(const String &url, String &content, String &errorMessage) 
 #else
     (void)usedSecureTransport;
 #endif
+
+    bool canRetryInsecure = (!forceInsecure) && usedSecureTransport && isOtaCertificateConfigured() && (httpCode <= 0);
+    if (canRetryInsecure) {
+      addLog(String("Falha TLS ao baixar ") + url + ": " + errorMessage +
+             ". Tentando novamente sem validação de certificado.");
+      http.end();
+      forceInsecure = true;
+      continue;
+    }
+
     http.end();
     return false;
   }
-
-  content = http.getString();
-  http.end();
-  return true;
 }
