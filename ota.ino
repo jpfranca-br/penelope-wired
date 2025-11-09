@@ -13,6 +13,10 @@ extern bool beginHttpDownload(const String &url,
 extern bool downloadTextFile(const String &url, String &content, String &errorMessage);
 extern String describeTlsError(WiFiClient *client, bool usedSecureTransport);
 extern const char* otaRootCACertificate;
+extern bool pauseNetworkScan();
+extern void resumeNetworkScan(bool restartImmediately);
+extern bool pauseAllCommandWorkers();
+extern void resumeCommandWorkers();
 
 bool isOtaCertificateConfigured() {
   return otaRootCACertificate != nullptr && otaRootCACertificate[0] != '\0';
@@ -57,16 +61,26 @@ void performOtaUpdate(const String &binUrl, const String &md5Url) {
   addLog("Iniciando atualização OTA");
   addLog("Solicitando MD5 em: " + md5Url);
 
+  bool scanWasActive = pauseNetworkScan();
+  pauseAllCommandWorkers();
+
+  auto resumeAfterFailure = [&]() {
+    resumeCommandWorkers();
+    resumeNetworkScan(scanWasActive);
+  };
+
   String errorMessage;
   String md5Content;
   if (!downloadTextFile(md5Url, md5Content, errorMessage)) {
     addLog("Falha ao baixar arquivo MD5: " + errorMessage);
+    resumeAfterFailure();
     return;
   }
 
   String expectedMd5 = parseMd5FromContent(md5Content);
   if (expectedMd5.length() != 32) {
     addLog("MD5 inválido recebido: " + expectedMd5);
+    resumeAfterFailure();
     return;
   }
 
@@ -88,6 +102,7 @@ void performOtaUpdate(const String &binUrl, const String &md5Url) {
       }
 
       addLog("Falha ao iniciar download do firmware: " + errorMessage);
+      resumeAfterFailure();
       return;
     }
 
@@ -122,6 +137,7 @@ void performOtaUpdate(const String &binUrl, const String &md5Url) {
 
     addLog(message);
     http.end();
+    resumeAfterFailure();
     return;
   }
 
@@ -136,6 +152,7 @@ void performOtaUpdate(const String &binUrl, const String &md5Url) {
   if (stream == nullptr) {
     addLog("Fluxo de download indisponível");
     http.end();
+    resumeAfterFailure();
     return;
   }
   stream->setTimeout(15000);
@@ -144,6 +161,7 @@ void performOtaUpdate(const String &binUrl, const String &md5Url) {
   if (!Update.begin(updateSize)) {
     addLog("Update.begin falhou: " + describeUpdateError());
     http.end();
+    resumeAfterFailure();
     return;
   }
 
@@ -151,6 +169,7 @@ void performOtaUpdate(const String &binUrl, const String &md5Url) {
     addLog("Falha ao configurar MD5 esperado");
     Update.abort();
     http.end();
+    resumeAfterFailure();
     return;
   }
 
@@ -159,6 +178,7 @@ void performOtaUpdate(const String &binUrl, const String &md5Url) {
     addLog("Nenhum dado escrito durante a atualização OTA");
     Update.abort();
     http.end();
+    resumeAfterFailure();
     return;
   }
 
@@ -166,6 +186,7 @@ void performOtaUpdate(const String &binUrl, const String &md5Url) {
     addLog("Tamanho baixado inesperado: " + String(written) + " de " + String(contentLength) + " bytes");
     Update.abort();
     http.end();
+    resumeAfterFailure();
     return;
   }
 
@@ -173,22 +194,26 @@ void performOtaUpdate(const String &binUrl, const String &md5Url) {
     addLog("Erro durante gravação OTA: " + describeUpdateError());
     Update.abort();
     http.end();
+    resumeAfterFailure();
     return;
   }
 
   if (!Update.end()) {
     addLog("Update.end falhou: " + describeUpdateError());
     http.end();
+    resumeAfterFailure();
     return;
   }
 
   if (!Update.isFinished()) {
     addLog("Atualização OTA incompleta");
     http.end();
+    resumeAfterFailure();
     return;
   }
 
   http.end();
+  resumeNetworkScan(false);
   addLog("Atualização OTA concluída com sucesso. Reiniciando...");
   delay(1000);
   ESP.restart();

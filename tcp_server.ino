@@ -1,10 +1,12 @@
 // tcp_server.ino
 
+#include <Arduino.h>
 #include <ETH.h>
 #include <WiFi.h>
 #include <Preferences.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <freertos/task.h>
 
 extern volatile bool eth_connected;
 extern bool serverFound;
@@ -30,6 +32,9 @@ namespace {
 const int MAX_RECONNECT_ATTEMPTS = 3;
 const unsigned long RETRY_DELAY_MS = 500;
 const int NUM_SCAN_TASKS = 8;
+bool scanAbortRequested = false;
+bool networkScanSuspended = false;
+TaskHandle_t scanTaskHandles[NUM_SCAN_TASKS] = {nullptr};
 
 void scanTask(void *parameter);
 bool tryReconnectToSavedServer();
@@ -87,6 +92,11 @@ void loadPorts() {
 }
 
 void startNetworkScan() {
+  if (networkScanSuspended) {
+    addLog("Varredura de rede suspensa. Ignorando solicitação de início.");
+    return;
+  }
+
   if (!eth_connected) {
     addLog("Não é possível iniciar a varredura - Ethernet não conectada");
     return;
@@ -114,6 +124,11 @@ void startNetworkScan() {
 
   currentScanIP = 1;
   scanComplete = false;
+  scanAbortRequested = false;
+
+  for (int i = 0; i < NUM_SCAN_TASKS; ++i) {
+    scanTaskHandles[i] = nullptr;
+  }
 
   addLog("Iniciando varredura de rede multithread...");
   addLog("Intervalo de varredura: " + scanRange);
@@ -126,9 +141,9 @@ void startNetworkScan() {
       scanTask,
       taskName,
       4096,
-      NULL,
+      reinterpret_cast<void *>(static_cast<intptr_t>(i)),
       1,
-      NULL
+      &scanTaskHandles[i]
     );
   }
 }
@@ -136,6 +151,10 @@ void startNetworkScan() {
 namespace {
 
 void scanTask(void *parameter) {
+  int taskIndex = static_cast<int>(reinterpret_cast<intptr_t>(parameter));
+  if (taskIndex < 0 || taskIndex >= NUM_SCAN_TASKS) {
+    taskIndex = NUM_SCAN_TASKS - 1;
+  }
   IPAddress localIP = ETH.localIP();
   IPAddress subnet = ETH.subnetMask();
   IPAddress network;
@@ -145,7 +164,18 @@ void scanTask(void *parameter) {
   }
 
   while (true) {
+    if (scanAbortRequested) {
+      if (taskIndex >= 0 && taskIndex < NUM_SCAN_TASKS) {
+        scanTaskHandles[taskIndex] = nullptr;
+      }
+      vTaskDelete(NULL);
+      return;
+    }
+
     if (!eth_connected) {
+      if (taskIndex >= 0 && taskIndex < NUM_SCAN_TASKS) {
+        scanTaskHandles[taskIndex] = nullptr;
+      }
       vTaskDelete(NULL);
       return;
     }
@@ -155,6 +185,9 @@ void scanTask(void *parameter) {
     xSemaphoreGive(serverMutex);
 
     if (found) {
+      if (taskIndex >= 0 && taskIndex < NUM_SCAN_TASKS) {
+        scanTaskHandles[taskIndex] = nullptr;
+      }
       vTaskDelete(NULL);
       return;
     }
@@ -164,6 +197,9 @@ void scanTask(void *parameter) {
     if (ipToScan >= 255) {
       scanComplete = true;
       xSemaphoreGive(scanMutex);
+      if (taskIndex >= 0 && taskIndex < NUM_SCAN_TASKS) {
+        scanTaskHandles[taskIndex] = nullptr;
+      }
       vTaskDelete(NULL);
       return;
     }
@@ -233,6 +269,9 @@ void scanTask(void *parameter) {
           xSemaphoreGive(serverMutex);
 
           testClient.stop();
+          if (taskIndex >= 0 && taskIndex < NUM_SCAN_TASKS) {
+            scanTaskHandles[taskIndex] = nullptr;
+          }
           vTaskDelete(NULL);
           return;
         } else {
@@ -309,6 +348,83 @@ bool tryReconnectToSavedServer() {
 }
 
 }  // namespace
+
+bool pauseNetworkScan() {
+  networkScanSuspended = true;
+  scanAbortRequested = true;
+
+  bool hadActiveTask = false;
+  unsigned long startWait = millis();
+  const unsigned long WAIT_TIMEOUT_MS = 5000;
+
+  while (true) {
+    bool anyActive = false;
+    for (int i = 0; i < NUM_SCAN_TASKS; ++i) {
+      if (scanTaskHandles[i] != nullptr) {
+        anyActive = true;
+        break;
+      }
+    }
+
+    if (!anyActive) {
+      break;
+    }
+
+    hadActiveTask = true;
+    if (millis() - startWait > WAIT_TIMEOUT_MS) {
+      addLog("Aviso: timeout aguardando término das threads de varredura");
+      break;
+    }
+
+    delay(25);
+    yield();
+  }
+
+  bool tasksStillActive = false;
+  for (int i = 0; i < NUM_SCAN_TASKS; ++i) {
+    if (scanTaskHandles[i] != nullptr) {
+      tasksStillActive = true;
+      break;
+    }
+  }
+
+  if (!tasksStillActive) {
+    scanAbortRequested = false;
+  }
+
+  if (scanMutex != nullptr) {
+    xSemaphoreTake(scanMutex, portMAX_DELAY);
+    scanComplete = false;
+    xSemaphoreGive(scanMutex);
+  } else {
+    scanComplete = false;
+  }
+
+  if (hadActiveTask) {
+    addLog("Varredura de rede pausada");
+  } else {
+    addLog("Nenhuma thread de varredura ativa para pausar");
+  }
+
+  return hadActiveTask;
+}
+
+void resumeNetworkScan(bool restartImmediately) {
+  networkScanSuspended = false;
+
+  if (restartImmediately && eth_connected) {
+    if (scanMutex != nullptr) {
+      xSemaphoreTake(scanMutex, portMAX_DELAY);
+      currentScanIP = 1;
+      scanComplete = false;
+      xSemaphoreGive(scanMutex);
+    } else {
+      currentScanIP = 1;
+      scanComplete = false;
+    }
+    startNetworkScan();
+  }
+}
 
 bool ensureServerConnection() {
   if (client.connected()) {

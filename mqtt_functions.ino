@@ -29,10 +29,14 @@ void clearCommandSlot(int slotIndex);
 bool parseUnsignedLong(const String &value, unsigned long &result);
 void performOtaUpdate(const String &binUrl, const String &md5Url);
 bool ensureServerConnection();
+bool pauseAllCommandWorkers();
+void resumeCommandWorkers();
 
 const unsigned long COMMAND_RESPONSE_TIMEOUT_MS = 2000;
 const int MAX_COMMAND_SLOTS = 8;
 int maxCommandWorkers = MAX_COMMAND_SLOTS;
+bool commandWorkersPaused = false;
+bool commandSlotWasActiveBeforePause[MAX_COMMAND_SLOTS] = {false};
 
 struct CommandSlot {
   bool inUse = false;
@@ -502,6 +506,88 @@ void startCommandWorker(int slotIndex) {
     persistCommandSlots();
   } else {
     addLog("Worker de comando iniciado para \"" + command + "\" @ " + String(intervalMs) + "ms");
+  }
+}
+
+bool pauseAllCommandWorkers() {
+  commandWorkersPaused = true;
+
+  if (commandSlotsMutex == nullptr) {
+    for (int i = 0; i < MAX_COMMAND_SLOTS; ++i) {
+      commandSlotWasActiveBeforePause[i] = false;
+    }
+    addLog("Agendador de comandos não inicializado. Nenhum worker pausado.");
+    return false;
+  }
+
+  TaskHandle_t handles[MAX_COMMAND_SLOTS];
+  int handleCount = 0;
+  bool anyActive = false;
+
+  xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+  for (int i = 0; i < MAX_COMMAND_SLOTS; ++i) {
+    CommandSlot &slot = commandSlots[i];
+    bool slotWasActive = slot.active && slot.inUse;
+    commandSlotWasActiveBeforePause[i] = slotWasActive;
+
+    if (slot.taskHandle != nullptr) {
+      handles[handleCount++] = slot.taskHandle;
+      slot.taskHandle = nullptr;
+    }
+
+    if (slotWasActive) {
+      anyActive = true;
+      slot.active = false;
+      slot.terminateAfterNext = false;
+      slot.triggerImmediate = true;
+      slot.nextRun = 0;
+    }
+  }
+  xSemaphoreGive(commandSlotsMutex);
+
+  for (int i = 0; i < handleCount; ++i) {
+    vTaskDelete(handles[i]);
+  }
+
+  if (anyActive) {
+    addLog("Workers de comando pausados");
+  } else {
+    addLog("Nenhum worker de comando ativo para pausar");
+  }
+
+  return anyActive;
+}
+
+void resumeCommandWorkers() {
+  if (!commandWorkersPaused) {
+    return;
+  }
+
+  commandWorkersPaused = false;
+
+  if (commandSlotsMutex == nullptr) {
+    return;
+  }
+
+  int indicesToRestart[MAX_COMMAND_SLOTS];
+  int restartCount = 0;
+
+  xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+  for (int i = 0; i < MAX_COMMAND_SLOTS; ++i) {
+    if (commandSlotWasActiveBeforePause[i] && commandSlots[i].inUse) {
+      indicesToRestart[restartCount++] = i;
+      commandSlots[i].triggerImmediate = true;
+    }
+    commandSlotWasActiveBeforePause[i] = false;
+  }
+  xSemaphoreGive(commandSlotsMutex);
+
+  for (int i = 0; i < restartCount; ++i) {
+    startCommandWorker(indicesToRestart[i]);
+  }
+
+  if (restartCount > 0) {
+    addLog("Workers de comando retomados");
   }
 }
 
