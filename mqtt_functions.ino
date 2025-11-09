@@ -851,6 +851,57 @@ void handleCommand(String command) {
 
     performOtaUpdate(binUrl, md5Url);
   }
+  else if (cmdLower.equals("workers")) {
+    if (commandSlotsMutex == nullptr) {
+      addLog("Agendador de comandos não inicializado");
+      return;
+    }
+
+    bool slotInUse[MAX_COMMAND_SLOTS];
+    bool slotActive[MAX_COMMAND_SLOTS];
+    bool slotSendAlways[MAX_COMMAND_SLOTS];
+    unsigned long slotInterval[MAX_COMMAND_SLOTS];
+    String slotCommand[MAX_COMMAND_SLOTS];
+
+    xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+    for (int i = 0; i < MAX_COMMAND_SLOTS; ++i) {
+      const CommandSlot &slot = commandSlots[i];
+      slotInUse[i] = slot.inUse;
+      slotActive[i] = slot.active;
+      slotSendAlways[i] = slot.sendAlways;
+      slotInterval[i] = slot.intervalMs;
+      slotCommand[i] = slot.command;
+    }
+    xSemaphoreGive(commandSlotsMutex);
+
+    bool anyWorkers = false;
+    addLog("Workers configurados:");
+
+    for (int i = 0; i < MAX_COMMAND_SLOTS; ++i) {
+      if (!slotInUse[i] || slotCommand[i].length() == 0) {
+        continue;
+      }
+
+      anyWorkers = true;
+      uint32_t crc = calculateCommandCrc32(slotCommand[i]);
+      char crcBuffer[9];
+      snprintf(crcBuffer, sizeof(crcBuffer), "%08lX", static_cast<unsigned long>(crc));
+
+      String intervaloStr = slotInterval[i] > 0 ? String(slotInterval[i]) + "ms" : "sem intervalo";
+      String publishStr = slotSendAlways[i] ? "sempre" : "quando mudar";
+      String ativoStr = slotActive[i] ? "sim" : "não";
+
+      String message = "- " + String(crcBuffer) + ": comando=\"" + slotCommand[i] + "\"";
+      message += ", intervalo=" + intervaloStr;
+      message += ", envia=" + publishStr;
+      message += ", ativo=" + ativoStr;
+      addLog(message);
+    }
+
+    if (!anyWorkers) {
+      addLog("Nenhum worker configurado");
+    }
+  }
   else {
     addLog("Comando desconhecido: " + command);
   }
