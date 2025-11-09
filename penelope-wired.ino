@@ -68,6 +68,11 @@ String ap_password = DEFAULT_AP_PASSWORD;
 
 // Root CA used for OTA HTTPS downloads. Set to nullptr to allow insecure certificates.
 const char* otaRootCACertificate = nullptr;
+//const char* otaRootCACertificate = R"EOF(
+//-----BEGIN CERTIFICATE-----
+//MIIF...
+//-----END CERTIFICATE-----
+//)EOF";
 
 // MQTT Client
 WiFiClient espClient;
@@ -127,6 +132,14 @@ void setup() {
   Serial.println("\nWT32-ETH01 Multi-threaded Network Scanner");
 
   preferences.begin("wifi-config", false);
+
+  macAddress.replace(":", "");
+  macAddress.toLowerCase();
+  ap_ssid = "sylvester-" + macAddress;
+  mqttTopicBase = "sylvester/" + macAddress + "/";
+  loadWifiSettings();
+  setupAccessPoint();
+  
   loadWiredConfig();
   loadPersistedServerDetails();
 
@@ -163,15 +176,7 @@ void setup() {
     deviceMac = macAddress;
   }
 
-  macAddress.replace(":", "");
-  macAddress.toLowerCase();
-  ap_ssid = "sylvester-" + macAddress;
-  mqttTopicBase = "sylvester/" + macAddress + "/";
-
-  loadWifiSettings();
   loadPorts();
-
-  setupAccessPoint();
   
   // Wait a bit more for Ethernet to stabilize
   if (!eth_connected) {
