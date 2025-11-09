@@ -55,6 +55,7 @@ void handleConfigPage();
 void handleConfigSubmit();
 
 static void scanTask(void *parameter);
+static bool tryReconnectToSavedServer();
 
 #define NUM_SCAN_TASKS 8
 
@@ -169,6 +170,67 @@ void persistServerDetails(const String &ip, int port) {
   preferences.putString(PREF_KEY_SERVER_IP, ip);
   preferences.putInt(PREF_KEY_SERVER_PORT, port);
   addLog("Detalhes do servidor salvos: " + ip + ":" + String(port));
+}
+
+static bool tryReconnectToSavedServer() {
+  if (serverMutex == nullptr) {
+    return false;
+  }
+
+  xSemaphoreTake(serverMutex, portMAX_DELAY);
+  bool alreadyFound = serverFound;
+  String savedIP = serverIP;
+  int savedPort = serverPort;
+  xSemaphoreGive(serverMutex);
+
+  if (alreadyFound) {
+    return true;
+  }
+
+  if (savedIP.length() == 0 || savedPort <= 0 || savedPort > 65535) {
+    return false;
+  }
+
+  addLog("Tentando reconectar ao servidor salvo: " + savedIP + ":" + String(savedPort));
+
+  xSemaphoreTake(serverMutex, portMAX_DELAY);
+
+  client.stop();
+  bool connected = client.connect(savedIP.c_str(), savedPort, 500);
+  if (!connected) {
+    xSemaphoreGive(serverMutex);
+    addLog("Falha ao conectar ao servidor salvo");
+    return false;
+  }
+
+  client.println("(&V)");
+  client.flush();
+
+  unsigned long startTime = millis();
+  while (!client.available() && (millis() - startTime < 1000)) {
+    delay(10);
+    yield();
+  }
+
+  if (!client.available()) {
+    client.stop();
+    xSemaphoreGive(serverMutex);
+    addLog("Servidor salvo não respondeu. Iniciando varredura completa.");
+    return false;
+  }
+
+  String response = client.readStringUntil('\n');
+  response.trim();
+  if (response.length() > 0) {
+    addLog("Resposta do servidor salvo: " + response);
+  }
+
+  serverFound = true;
+  lastCommandTime = millis();
+  xSemaphoreGive(serverMutex);
+
+  addLog("Conexão restabelecida com o servidor salvo. Varredura não necessária.");
+  return true;
 }
 
 void loadWiredConfig() {
@@ -419,6 +481,10 @@ void startNetworkScan() {
   IPAddress localIP = ETH.localIP();
   if (localIP == IPAddress(0, 0, 0, 0)) {
     addLog("Não é possível iniciar a varredura - IP da Ethernet não atribuído");
+    return;
+  }
+
+  if (tryReconnectToSavedServer()) {
     return;
   }
 
