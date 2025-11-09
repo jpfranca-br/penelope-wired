@@ -5,6 +5,7 @@
 #include <WiFi.h>
 #include <stdio.h>
 #include <esp_system.h>
+#include <esp_mac.h>
 
 // Ethernet configuration for WT32-ETH01
 #define ETH_PHY_TYPE    ETH_PHY_LAN8720
@@ -203,7 +204,13 @@ void setup() {
   String rawMac = ETH.macAddress();
   if (rawMac.length() == 0) {
     uint8_t baseMac[6] = {0};
+#if defined(ESP_MAC_ETH)
     if (esp_read_mac(baseMac, ESP_MAC_ETH) == ESP_OK) {
+#elif defined(ESP_MAC_TYPE_ETH)
+    if (esp_read_mac(baseMac, ESP_MAC_TYPE_ETH) == ESP_OK) {
+#else
+    if (esp_base_mac_addr_get(baseMac) == ESP_OK) {
+#endif
       char baseMacStr[18];
       sprintf(baseMacStr, "%02X:%02X:%02X:%02X:%02X:%02X",
               baseMac[0], baseMac[1], baseMac[2], baseMac[3], baseMac[4], baseMac[5]);
