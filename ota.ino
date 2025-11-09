@@ -4,8 +4,13 @@
 #include <WiFiClient.h>
 
 extern void addLog(String message);
-extern bool beginHttpDownload(const String &url, HTTPClient &http, WiFiClient *&clientOut, String &errorMessage);
+extern bool beginHttpDownload(const String &url,
+                              HTTPClient &http,
+                              WiFiClient *&clientOut,
+                              String &errorMessage,
+                              bool &usedSecureTransport);
 extern bool downloadTextFile(const String &url, String &content, String &errorMessage);
+extern String describeTlsError(WiFiClient *client, bool usedSecureTransport);
 
 static String describeUpdateError() {
 #if defined(ESP32)
@@ -64,12 +69,11 @@ void performOtaUpdate(const String &binUrl, const String &md5Url) {
 
   HTTPClient http;
   WiFiClient *client = nullptr;
-  if (!beginHttpDownload(binUrl, http, client, errorMessage)) {
+  bool usedSecureTransport = false;
+  if (!beginHttpDownload(binUrl, http, client, errorMessage, usedSecureTransport)) {
     addLog("Falha ao iniciar download do firmware: " + errorMessage);
     return;
   }
-
-  (void)client;
 
   int httpCode = http.GET();
   if (httpCode != HTTP_CODE_OK) {
@@ -78,6 +82,16 @@ void performOtaUpdate(const String &binUrl, const String &md5Url) {
     if (reason.length() > 0) {
       message += " - " + reason;
     }
+#if defined(ESP32)
+    if (httpCode <= 0) {
+      String tlsError = describeTlsError(client, usedSecureTransport);
+      if (tlsError.length() > 0) {
+        message += " | " + tlsError;
+      }
+    }
+#else
+    (void)usedSecureTransport;
+#endif
     addLog(message);
     http.end();
     return;

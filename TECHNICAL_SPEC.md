@@ -85,7 +85,7 @@ Forward declarations at top tie this module to handlers implemented elsewhere, e
 | `startNetworkScan()` | Launches a parallel scan across the /24 subnet for PLC ports. | None. | Validates Ethernet state, logs range, spawns `NUM_SCAN_TASKS` FreeRTOS tasks executing `scanTask`. |
 | `scanTask(void *parameter)` | FreeRTOS worker routine that probes IP addresses for configured ports and records the first responsive server. | None. | Iteratively increments `currentScanIP`, attempts TCP connect/send `(&V)`, and when a response is found sets `serverFound`, `serverIP`, `serverPort`, starts persistent `client`, persists details, and terminates all scan workers. |
 | `loadPorts()` | Restores up to 10 TCP ports from flash with defaults. | None. | Populates `ports[]`, `numPorts`, logs selection. |
-| `beginHttpDownload(const String &url, HTTPClient &http, WiFiClient *&clientOut, String &errorMessage)` | Prepares an HTTP(S) client with timeout, redirect, and CA settings for OTA downloads. | URL plus HTTP client references. | Returns `true` on success and sets `clientOut` to the correct (secure/plain) client. |
+| `beginHttpDownload(const String &url, HTTPClient &http, WiFiClient *&clientOut, String &errorMessage, bool &usedSecureTransport)` | Prepares an HTTP(S) client with timeout, redirect, and CA settings for OTA downloads, tracking whether TLS is in use. | URL plus HTTP client references. | Returns `true` on success, sets `clientOut` to the correct (secure/plain) client, and flags secure usage. |
 | `downloadTextFile(const String &url, String &content, String &errorMessage)` | Synchronously downloads a small text resource (e.g., MD5). | URL; output `content`. | Returns `true` and fills `content` on HTTP 200 success. |
 
 ### 4. `mqtt_functions.ino`
