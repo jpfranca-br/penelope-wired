@@ -46,6 +46,7 @@ extern String wiredStaticDnsStr;
 extern const char* const PREF_KEY_SERVER_IP;
 extern const char* const PREF_KEY_SERVER_PORT;
 extern const char* otaRootCACertificate;
+extern void updateMacIdentity(const String &rawMac, bool reapplyAccessPoint);
 
 void addLog(String message);
 void handleMonitor();
@@ -72,10 +73,13 @@ void onEvent(arduino_event_id_t event) {
       Serial.println("ETH obteve IP");
       Serial.print("Endereço IP: ");
       Serial.println(ETH.localIP());
-      Serial.print("MAC: ");
-      Serial.println(ETH.macAddress());
+      {
+        String gotIpMac = ETH.macAddress();
+        Serial.print("MAC: ");
+        Serial.println(gotIpMac);
+        updateMacIdentity(gotIpMac, true);
+      }
       eth_connected = true;
-      deviceMac = ETH.macAddress();
       wiredIP = ETH.localIP().toString();
       publicIPRefreshRequested = true;
       addLog("Ethernet conectada - IP: " + ETH.localIP().toString());
@@ -417,19 +421,26 @@ void loadWifiSettings() {
 }
 
 void setupAccessPoint() {
+  static bool handlersConfigured = false;
+
   WiFi.mode(WIFI_AP);
+  WiFi.softAPdisconnect(true);
   WiFi.softAP(ap_ssid.c_str(), ap_password.c_str());
 
   IPAddress apIP = WiFi.softAPIP();
 
-  server.on("/", handleMonitor);
-  server.on("/logs", handleLogs);
-  server.on("/style.css", handleCSS);
-  server.on("/config", HTTP_GET, handleConfigPage);
-  server.on("/config", HTTP_POST, handleConfigSubmit);
-  server.onNotFound([]() {
-    server.send(404, "text/plain", "Não encontrado");
-  });
+  if (!handlersConfigured) {
+    server.on("/", handleMonitor);
+    server.on("/logs", handleLogs);
+    server.on("/style.css", handleCSS);
+    server.on("/config", HTTP_GET, handleConfigPage);
+    server.on("/config", HTTP_POST, handleConfigSubmit);
+    server.onNotFound([]() {
+      server.send(404, "text/plain", "Não encontrado");
+    });
+    handlersConfigured = true;
+  }
+
   server.begin();
 
   Serial.print("Ponto de acesso iniciado: ");
