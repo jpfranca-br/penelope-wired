@@ -27,6 +27,7 @@ int reserveSlotForCommand(const String &command);
 int getActiveWorkerCount();
 void startCommandWorker(int slotIndex);
 void commandTask(void *param);
+void clearCommandSlot(int slotIndex);
 bool parseUnsignedLong(const String &value, unsigned long &result);
 void performOtaUpdate(const String &binUrl, const String &md5Url);
 bool ensureServerConnection();
@@ -167,6 +168,30 @@ void initializeCommandScheduler() {
     commandSlots[i].hasLastResponse = false;
     commandSlots[i].taskHandle = nullptr;
   }
+  xSemaphoreGive(commandSlotsMutex);
+}
+
+void clearCommandSlot(int slotIndex) {
+  if (commandSlotsMutex == nullptr) {
+    return;
+  }
+  if (slotIndex < 0 || slotIndex >= MAX_COMMAND_SLOTS) {
+    return;
+  }
+
+  xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
+  CommandSlot &slot = commandSlots[slotIndex];
+  slot.inUse = false;
+  slot.active = false;
+  slot.sendAlways = false;
+  slot.triggerImmediate = false;
+  slot.terminateAfterNext = false;
+  slot.intervalMs = 0;
+  slot.nextRun = 0;
+  slot.command = "";
+  slot.lastResponse = "";
+  slot.hasLastResponse = false;
+  slot.taskHandle = nullptr;
   xSemaphoreGive(commandSlotsMutex);
 }
 
@@ -470,11 +495,8 @@ void startCommandWorker(int slotIndex) {
 
   if (result != pdPASS) {
     addLog("Falha ao iniciar o worker de comando para \"" + command + "\"");
-    xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
-    commandSlots[slotIndex].active = false;
-    commandSlots[slotIndex].taskHandle = nullptr;
-    commandSlots[slotIndex].triggerImmediate = false;
-    xSemaphoreGive(commandSlotsMutex);
+    clearCommandSlot(slotIndex);
+    persistCommandSlots();
   } else {
     addLog("Worker de comando iniciado para \"" + command + "\" @ " + String(intervalMs) + "ms");
   }
@@ -551,12 +573,7 @@ void commandTask(void *param) {
   }
 
   if (commandSlotsMutex != nullptr && slotIndex >= 0 && slotIndex < MAX_COMMAND_SLOTS) {
-    xSemaphoreTake(commandSlotsMutex, portMAX_DELAY);
-    commandSlots[slotIndex].taskHandle = nullptr;
-    commandSlots[slotIndex].active = false;
-    commandSlots[slotIndex].triggerImmediate = false;
-    commandSlots[slotIndex].terminateAfterNext = false;
-    xSemaphoreGive(commandSlotsMutex);
+    clearCommandSlot(slotIndex);
     persistCommandSlots();
   }
 
@@ -591,6 +608,7 @@ bool sendCommandToTcpServer(const String &command, String &responseOut) {
 
   if (!serverFound) {
     addLog("Não é possível enviar comando - servidor não conectado");
+    responseOut = "Servidor não conectado";
     lastResponseReceived = "Servidor não conectado";
     return false;
   }
@@ -605,6 +623,7 @@ bool sendCommandToTcpServer(const String &command, String &responseOut) {
   if (!serverFound || !connected) {
     xSemaphoreGive(serverMutex);
     addLog("Não é possível enviar comando - servidor não conectado");
+    responseOut = "Servidor não conectado";
     lastResponseReceived = "Servidor não conectado";
     return false;
   }
@@ -642,10 +661,6 @@ bool sendCommandAndMaybePublish(int slotIndex, const String &command, bool sendA
   String response;
   bool received = sendCommandToTcpServer(command, response);
 
-  if (!received) {
-    return false;
-  }
-
   bool shouldPublish = sendAlways;
   String previousResponse = "";
   bool hasPreviousResponse = false;
@@ -658,7 +673,9 @@ bool sendCommandAndMaybePublish(int slotIndex, const String &command, bool sendA
     xSemaphoreGive(commandSlotsMutex);
   }
 
-  if (!sendAlways) {
+  if (!received || response.length() == 0) {
+    shouldPublish = true;
+  } else if (!sendAlways) {
     if (!hasPreviousResponse || response != previousResponse) {
       shouldPublish = true;
     } else {
@@ -679,7 +696,7 @@ bool sendCommandAndMaybePublish(int slotIndex, const String &command, bool sendA
     xSemaphoreGive(commandSlotsMutex);
   }
 
-  return true;
+  return received;
 }
 
 void handleMqttRequest(const String &payload) {
@@ -729,9 +746,8 @@ void handleMqttRequest(const String &payload) {
       }
     } else {
       sendCommandAndMaybePublish(slotIndex, command, effectiveSendAlways);
-      if (persistNeeded) {
-        persistCommandSlots();
-      }
+      clearCommandSlot(slotIndex);
+      persistCommandSlots();
     }
     return;
   }
@@ -850,6 +866,22 @@ void handleCommand(String command) {
     }
 
     performOtaUpdate(binUrl, md5Url);
+  }
+  else if (cmdLower.equals("help")) {
+    addLog("Comandos disponíveis:");
+    addLog("- help: mostra esta lista");
+    addLog("- boot: reinicia o dispositivo");
+    addLog("- factoryreset: restaura as configurações padrão");
+    addLog("- scan: inicia uma nova varredura de rede");
+    addLog("- wifipassword <senha>: atualiza a senha do Wi-Fi");
+    addLog("- port <ação>: gerencia a lista de portas para varredura");
+    addLog("- ipconfig <opções>: configura a rede cabeada");
+    addLog("- ota <url firmware.bin> <url firmware.md5>: inicia atualização OTA");
+    addLog("- workers: lista os workers configurados");
+    addLog("Formato das solicitações MQTT: comando|intervalo_ms|enviarSempre");
+    addLog("- intervalo_ms é opcional e representa milissegundos");
+    addLog("- enviarSempre: 1 para publicar sempre, 0 para apenas quando a resposta mudar");
+    addLog("Exemplo: status|5000|0");
   }
   else if (cmdLower.equals("workers")) {
     if (commandSlotsMutex == nullptr) {
