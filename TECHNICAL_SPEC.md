@@ -85,7 +85,7 @@ Forward declarations at top tie this module to handlers implemented elsewhere, e
 | `startNetworkScan()` | Launches a parallel scan across the /24 subnet for PLC ports. | None. | Validates Ethernet state, logs range, spawns `NUM_SCAN_TASKS` FreeRTOS tasks executing `scanTask`. |
 | `scanTask(void *parameter)` | FreeRTOS worker routine that probes IP addresses for configured ports and records the first responsive server. | None. | Iteratively increments `currentScanIP`, attempts TCP connect/send `(&V)`, and when a response is found sets `serverFound`, `serverIP`, `serverPort`, starts persistent `client`, persists details, and terminates all scan workers. |
 | `loadPorts()` | Restores up to 10 TCP ports from flash with defaults. | None. | Populates `ports[]`, `numPorts`, logs selection. |
-| `beginHttpDownload(const String &url, HTTPClient &http, WiFiClient *&clientOut, String &errorMessage, bool &usedSecureTransport)` | Prepares an HTTP(S) client with timeout, redirect, and CA settings for OTA downloads, tracking whether TLS is in use. | URL plus HTTP client references. | Returns `true` on success, sets `clientOut` to the correct (secure/plain) client, and flags secure usage. |
+| `beginHttpDownload(const String &url, HTTPClient &http, WiFiClient *&clientOut, String &errorMessage, bool &usedSecureTransport, bool forceInsecure)` | Prepares an HTTP(S) client with timeout, redirect, and CA settings for OTA downloads, optionally skipping certificate validation when `forceInsecure` is `true`. | URL plus HTTP client references and an insecure flag. | Returns `true` on success, sets `clientOut` to the correct (secure/plain) client, and flags secure usage. |
 | `downloadTextFile(const String &url, String &content, String &errorMessage)` | Synchronously downloads a small text resource (e.g., MD5). | URL; output `content`. | Returns `true` and fills `content` on HTTP 200 success. |
 
 ### 4. `mqtt_functions.ino`
@@ -116,7 +116,7 @@ Forward declarations at top tie this module to handlers implemented elsewhere, e
 ### 5. `ota.ino`
 | Function | Description | Inputs | Outputs / Side-effects |
 |----------|-------------|--------|------------------------|
-| `performOtaUpdate(const String &binUrl, const String &md5Url)` | Drives the complete OTA workflow: download MD5, validate format, download firmware, stream to flash, verify MD5, finalise update, reboot. | Firmware and MD5 URLs. | Calls helper functions for HTTP downloads (`beginHttpDownload`, `downloadTextFile`), uses Arduino `Update` API, logs each stage, restarts device on success. |
+| `performOtaUpdate(const String &binUrl, const String &md5Url)` | Drives the complete OTA workflow: download MD5, validate format, download firmware, stream to flash, verify MD5, finalise update, reboot. Retries downloads once without certificate validation if TLS negotiation fails. | Firmware and MD5 URLs. | Calls helper functions for HTTP downloads (`beginHttpDownload`, `downloadTextFile`), uses Arduino `Update` API, logs each stage, restarts device on success. |
 | `describeUpdateError()` *(static)* | Extracts a human-readable error message from `Update`. | None. | Returns string for logging. |
 | `parseMd5FromContent(String content)` *(static)* | Reduces MD5 file payload to the first token and normalises case. | Raw MD5 file contents. | Returns 32-character lowercase MD5 string. |
 
