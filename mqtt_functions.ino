@@ -954,6 +954,7 @@ void handleCommand(String command) {
       return;
     }
 
+    syncRtcWithNtp(true);
     performOtaUpdate(binUrl, md5Url);
   }
   else if (cmdLower.equals("help")) {
