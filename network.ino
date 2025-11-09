@@ -8,6 +8,8 @@
 #include <WebServer.h>
 #include <PubSubClient.h>
 
+#include "netmask_utils.h"
+
 extern volatile bool eth_connected;
 extern bool ethPreviouslyConnected;
 extern bool serverFound;
@@ -391,15 +393,10 @@ bool setWiredConfiguration(bool useDhcp, const String &ip, const String &mask, c
       return false;
     }
 
-    bool seenZeroBit = false;
-    for (int bit = 31; bit >= 0; --bit) {
-      bool maskBitSet = (maskValue >> bit) & 0x1;
-      if (!maskBitSet) {
-        seenZeroBit = true;
-      } else if (seenZeroBit) {
-        errorMessage = "Máscara de sub-rede inválida";
-        return false;
-      }
+    std::array<uint8_t, 4> maskOctets = {parsedMask[0], parsedMask[1], parsedMask[2], parsedMask[3]};
+    if (!isValidSubnetMaskOctets(maskOctets)) {
+      errorMessage = "Máscara de sub-rede inválida";
+      return false;
     }
 
     uint32_t networkOfIp = ipValue & maskValue;
