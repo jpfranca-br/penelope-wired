@@ -1,7 +1,5 @@
 // mqtt_functions.ino
 
-// mqtt_functions.ino
-
 #include <stdint.h>
 #include <stdio.h>
 #include <freertos/FreeRTOS.h>
@@ -868,20 +866,21 @@ void handleCommand(String command) {
     performOtaUpdate(binUrl, md5Url);
   }
   else if (cmdLower.equals("help")) {
-    addLog("Comandos disponíveis:");
+    addLog("Comandos disponíveis (payloads para o tópico command):");
     addLog("- help: mostra esta lista");
     addLog("- boot: reinicia o dispositivo");
-    addLog("- factoryreset: restaura as configurações padrão");
+    addLog("- factoryreset: restaura as configurações de fábrica");
     addLog("- scan: inicia uma nova varredura de rede");
     addLog("- wifipassword <senha>: atualiza a senha do Wi-Fi");
-    addLog("- port <ação>: gerencia a lista de portas para varredura");
-    addLog("- ipconfig <opções>: configura a rede cabeada");
+    addLog("- port <porta01> ... <porta10>: atualiza a lista de portas para varredura");
+    addLog("- ipconfig <dhcp|fixed> <ip> <mask> <gateway> <dns>: configura a rede cabeada");
     addLog("- ota <url firmware.bin> <url firmware.md5>: inicia atualização OTA");
-    addLog("- workers: lista os workers configurados");
-    addLog("Formato das solicitações MQTT: comando|intervalo_ms|enviarSempre");
-    addLog("- intervalo_ms é opcional e representa milissegundos");
-    addLog("- enviarSempre: 1 para publicar sempre, 0 para apenas quando a resposta mudar");
-    addLog("Exemplo: status|5000|0");
+    addLog("- workers: lista os workers ativos");
+    addLog("Formato das solicitações MQTT (payload para o tópico request):");
+    addLog("- comando|intervalo_ms|enviarSempre");
+    addLog("intervalo_ms é opcional e representa milissegundos");
+    addLog("enviarSempre: 1 para publicar sempre, 0 para apenas quando a resposta mudar");
+    addLog("Exemplo: (&A)|5000|0");
   }
   else if (cmdLower.equals("workers")) {
     if (commandSlotsMutex == nullptr) {
