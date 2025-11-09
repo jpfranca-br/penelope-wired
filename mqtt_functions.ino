@@ -66,60 +66,65 @@ extern IPAddress wiredStaticGateway;
 extern IPAddress wiredStaticDns;
 
 void connectMQTT() {
-  int attempts = 0;
-  while (!mqttClient.connected() && attempts < 5) {
-    Serial.print("Conectando ao broker MQTT...");
-    yield(); // Feed watchdog
-    
-    String clientId = "ESP32-" + macAddress;
-    
-    if (strlen(mqtt_user) > 0) {
-      if (mqttClient.connect(clientId.c_str(), mqtt_user, mqtt_password)) {
-        Serial.println(" conectado!");
-        
-        // Subscribe to request and command topics
-        String requestTopic = mqttTopicBase + "request";
-        String commandTopic = mqttTopicBase + "command";
-        mqttClient.subscribe(requestTopic.c_str());
-        mqttClient.subscribe(commandTopic.c_str());
+  static unsigned long lastAttemptTime = 0;
+  static int consecutiveFailures = 0;
+  static bool failureNotified = false;
 
-        wiredIP = ETH.localIP().toString();
-        addLog("MQTT conectado - IP do dispositivo: " + ETH.localIP().toString());
-        addLog("Inscrito em: " + requestTopic);
-        addLog("Inscrito em: " + commandTopic);
-        return;
-      }
-    } else {
-      if (mqttClient.connect(clientId.c_str())) {
-        Serial.println(" conectado!");
-        
-        // Subscribe to request and command topics
-        String requestTopic = mqttTopicBase + "request";
-        String commandTopic = mqttTopicBase + "command";
-        mqttClient.subscribe(requestTopic.c_str());
-        mqttClient.subscribe(commandTopic.c_str());
-
-        wiredIP = ETH.localIP().toString();
-        addLog("MQTT conectado - IP do dispositivo: " + ETH.localIP().toString());
-        addLog("Inscrito em: " + requestTopic);
-        addLog("Inscrito em: " + commandTopic);
-        return;
-      }
-    }
-    
-    Serial.print(" falhou, rc=");
-    Serial.println(mqttClient.state());
-    attempts++;
-    
-    // Feed watchdog during delay
-    for (int i = 0; i < 20; i++) {
-      delay(100);
-      yield();
-    }
+  if (mqttClient.connected()) {
+    consecutiveFailures = 0;
+    failureNotified = false;
+    return;
   }
-  
-  if (!mqttClient.connected()) {
-    Serial.println("Conexão MQTT falhou após 5 tentativas. Tentará novamente depois.");
+
+  unsigned long now = millis();
+  unsigned long retryDelay = (consecutiveFailures >= 5) ? 10000UL : 2000UL;
+  if (lastAttemptTime != 0 && (now - lastAttemptTime) < retryDelay) {
+    return;
+  }
+
+  lastAttemptTime = now;
+
+  Serial.print("Conectando ao broker MQTT...");
+  yield(); // Feed watchdog
+
+  String clientId = "ESP32-" + macAddress;
+  bool connected = false;
+
+  if (strlen(mqtt_user) > 0) {
+    connected = mqttClient.connect(clientId.c_str(), mqtt_user, mqtt_password);
+  } else {
+    connected = mqttClient.connect(clientId.c_str());
+  }
+
+  if (connected) {
+    Serial.println(" conectado!");
+
+    // Subscribe to request and command topics
+    String requestTopic = mqttTopicBase + "request";
+    String commandTopic = mqttTopicBase + "command";
+    mqttClient.subscribe(requestTopic.c_str());
+    mqttClient.subscribe(commandTopic.c_str());
+
+    wiredIP = ETH.localIP().toString();
+    addLog("MQTT conectado - IP do dispositivo: " + ETH.localIP().toString());
+    addLog("Inscrito em: " + requestTopic);
+    addLog("Inscrito em: " + commandTopic);
+
+    consecutiveFailures = 0;
+    failureNotified = false;
+    return;
+  }
+
+  Serial.print(" falhou, rc=");
+  Serial.println(mqttClient.state());
+
+  if (consecutiveFailures < 5) {
+    consecutiveFailures++;
+  }
+
+  if (consecutiveFailures >= 5 && !failureNotified) {
+    Serial.println("Conexão MQTT falhou repetidamente. Aguardando antes de tentar novamente.");
+    failureNotified = true;
   }
 }
 

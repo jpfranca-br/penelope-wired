@@ -382,6 +382,48 @@ bool setWiredConfiguration(bool useDhcp, const String &ip, const String &mask, c
       return false;
     }
 
+    uint32_t ipValue = (uint32_t)parsedIP;
+    uint32_t maskValue = (uint32_t)parsedMask;
+    uint32_t gatewayValue = (uint32_t)parsedGateway;
+
+    if (maskValue == 0) {
+      errorMessage = "Máscara de sub-rede inválida";
+      return false;
+    }
+
+    bool seenZeroBit = false;
+    for (int bit = 31; bit >= 0; --bit) {
+      bool maskBitSet = (maskValue >> bit) & 0x1;
+      if (!maskBitSet) {
+        seenZeroBit = true;
+      } else if (seenZeroBit) {
+        errorMessage = "Máscara de sub-rede inválida";
+        return false;
+      }
+    }
+
+    uint32_t networkOfIp = ipValue & maskValue;
+    uint32_t networkOfGateway = gatewayValue & maskValue;
+    if (networkOfIp != networkOfGateway) {
+      errorMessage = "IP e gateway precisam estar na mesma sub-rede";
+      return false;
+    }
+
+    uint32_t hostMask = ~maskValue;
+    if (hostMask != 0) {
+      uint32_t hostPart = ipValue & hostMask;
+      if (hostPart == 0 || hostPart == hostMask) {
+        errorMessage = "Endereço IP informado é inválido para essa sub-rede";
+        return false;
+      }
+
+      uint32_t gatewayHost = gatewayValue & hostMask;
+      if (gatewayHost == 0 || gatewayHost == hostMask) {
+        errorMessage = "Gateway informado é inválido para essa sub-rede";
+        return false;
+      }
+    }
+
     wiredDhcpEnabled = false;
     wiredStaticIP = parsedIP;
     wiredStaticMask = parsedMask;
