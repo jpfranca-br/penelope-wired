@@ -31,8 +31,8 @@ const int MAX_RECONNECT_ATTEMPTS = 3;
 const unsigned long RETRY_DELAY_MS = 500;
 const int NUM_SCAN_TASKS = 8;
 
-static void scanTask(void *parameter);
-static bool tryReconnectToSavedServer();
+void scanTask(void *parameter);
+bool tryReconnectToSavedServer();
 }
 
 void loadPersistedServerDetails() {
@@ -133,7 +133,9 @@ void startNetworkScan() {
   }
 }
 
-static void scanTask(void *parameter) {
+namespace {
+
+void scanTask(void *parameter) {
   IPAddress localIP = ETH.localIP();
   IPAddress subnet = ETH.subnetMask();
   IPAddress network;
@@ -245,7 +247,7 @@ static void scanTask(void *parameter) {
   }
 }
 
-static bool tryReconnectToSavedServer() {
+bool tryReconnectToSavedServer() {
   if (serverMutex == nullptr) {
     return false;
   }
@@ -305,6 +307,8 @@ static bool tryReconnectToSavedServer() {
   addLog("Conexão restabelecida com o servidor salvo. Varredura não necessária.");
   return true;
 }
+
+}  // namespace
 
 bool ensureServerConnection() {
   if (client.connected()) {
