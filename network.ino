@@ -547,8 +547,10 @@ bool beginHttpDownload(const String &url,
         return false;
       }
 #endif
+      addLog("Iniciando download HTTPS com validação de certificado");
     } else {
       secureClient.setInsecure();
+      addLog("AVISO: Download HTTPS sem validação de certificado");
     }
 
     if (!http.begin(secureClient, trimmedUrl)) {
