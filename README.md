@@ -21,20 +21,38 @@ you will later see on the dashboard.
 5. **Open the dashboard:** browse to `http://192.168.4.1/` to watch discovery progress and live logs.
 
 ## Building from Source
-- **Apply the SDK defaults:** the repository ships an `sdkconfig.defaults` that enables SHA-384 and secp384r1 support in mbedTLS.
-  Copy this file next to the sketch (Arduino-ESP32 3.x) or pass it to `idf.py`/PlatformIO so the OTA client can validate the
-  Let's Encrypt E7 certificate chain served by `*.ngrok-free.dev`.
-- **Clean build required:** If you're updating from a previous version, perform a clean build to ensure mbedTLS is recompiled
-  with the new configuration. In Arduino IDE: Sketch → Clean. In PlatformIO: `pio run --target clean`.
-- **Build normally:** once the defaults are in place, compile and flash as you would any other ESP32 sketch. Without these
-  options the firmware will fall back to the insecure OTA retry path.
+
+### Option 1: PlatformIO (Recommended for Certificate Validation)
+PlatformIO properly supports `sdkconfig.defaults` and will compile mbedTLS with the required features:
+
+1. **Install PlatformIO** (VS Code extension or CLI)
+2. **Open the project** - PlatformIO will automatically detect `platformio.ini`
+3. **Build and upload**: `pio run -t upload`
+
+The `sdkconfig.defaults` file enables SHA-384 and P-384 ECDSA support required for Let's Encrypt E7 certificates.
+
+### Option 2: Arduino IDE (Certificate Validation May Not Work)
+**⚠️ Important:** Arduino IDE uses prebuilt mbedTLS libraries that may not include P-384 ECDSA support. The `sdkconfig.defaults` file will be ignored.
+
+If you must use Arduino IDE:
+1. Open `penelope-wired.ino` in Arduino IDE
+2. Compile and upload normally
+3. **OTA will fall back to insecure mode** if certificate validation fails (TLS error -29312)
 
 ### Troubleshooting Certificate Validation
 If you see `TLS error -29312: SSL - The connection indicated an EOF` during OTA updates:
-1. Ensure `sdkconfig.defaults` is present in the sketch directory
-2. Perform a clean build to recompile mbedTLS with the required features
-3. Verify the build log shows mbedTLS being compiled with ECDSA and P-384 support
-4. The firmware will automatically fall back to insecure mode if certificate validation fails
+
+**Root Cause:** Your build doesn't have the mbedTLS features required for Let's Encrypt E7 (P-384 ECDSA).
+
+**Solutions:**
+1. **Switch to PlatformIO** - The recommended solution that properly applies mbedTLS configuration
+2. **Accept insecure fallback** - The firmware automatically retries without certificate validation
+3. **Rebuild Arduino-ESP32 core** - Advanced users can manually rebuild the core with custom mbedTLS config
+
+**Why This Happens:**
+- ngrok uses Let's Encrypt E7 intermediate certificates with P-384 ECDSA
+- Arduino IDE uses prebuilt mbedTLS libraries without these features
+- PlatformIO recompiles mbedTLS with `sdkconfig.defaults` settings
 
 ## Daily Operation
 ### Web Dashboard
