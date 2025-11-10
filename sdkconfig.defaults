@@ -1,4 +1,6 @@
-# Enable mbedTLS features required to validate Let's Encrypt E7 (P-384 / SHA-384)
+# Enable mbedTLS features for full Let's Encrypt certificate chain validation.
+# Let's Encrypt E7 intermediate uses P-384 ECDSA, so we need these features
+# enabled even though our root certificate (ISRG Root X1) uses RSA.
 CONFIG_MBEDTLS_SHA512_C=y
 CONFIG_MBEDTLS_ECP_DP_SECP384R1_ENABLED=y
 CONFIG_MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED=y
